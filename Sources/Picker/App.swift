@@ -1,5 +1,6 @@
-import SwiftUI
 import AppKit
+import ApplicationServices
+import SwiftUI
 
 // MARK: - Shared UI state
 
@@ -8,6 +9,24 @@ final class AppState: ObservableObject {
     /// True while the NSColorSampler loupe is on screen. Drives the button's
     /// live state and tells the dismiss monitor to leave the panel open.
     @Published var isSampling = false
+
+    /// True while the font-picking overlay is up.
+    @Published var isPickingFont = false
+
+    /// Transient result of a "Grab Font" attempt, surfaced as a toast. The token
+    /// lets the same message fire twice in a row and still register as a change.
+    struct Feedback: Equatable {
+        var text: String
+        var ok: Bool
+        var token: Int
+    }
+    @Published var fontFeedback: Feedback?
+    private var feedbackCount = 0
+
+    func sayFont(_ text: String, ok: Bool) {
+        feedbackCount += 1
+        fontFeedback = Feedback(text: text, ok: ok, token: feedbackCount)
+    }
 }
 
 // MARK: - Floating panel
@@ -25,31 +44,58 @@ final class FloatingPanel: NSPanel {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = ColorStore()
+    let fonts = FontStore()
     let app = AppState()
+    let fontPicker = FontPicker()
 
     private var statusItem: NSStatusItem!
     private var panel: FloatingPanel!
     private var hosting: NSHostingController<PanelView>!
     private var globalMonitor: Any?
     private var isDemo = false
+    private var activity: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Keep the process out of App Nap. A status-bar accessory with no ordinary
+        // window is a prime candidate for suspension, which can swallow the first
+        // click after the app has been idle. This keeps it responsive without
+        // blocking system sleep.
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Menu-bar panel stays responsive")
+
         setupStatusItem()
         setupPanel()
         store.onChange = { [weak self] in self?.resizeIfVisible() }
+        fonts.onChange = { [weak self] in self?.resizeIfVisible() }
 
         // Dev affordance: `Picker --demo` seeds swatches and opens the panel so the
         // rendered UI can be inspected without clicking the menu-bar item.
         if CommandLine.arguments.contains("--demo") {
             isDemo = true
             store.persistenceEnabled = false
-            for (r, g, b) in [(0.286, 0.314, 0.875), (0.953, 0.451, 0.396),
-                              (0.290, 0.776, 0.612), (0.945, 0.769, 0.298),
-                              (0.553, 0.357, 0.969), (0.180, 0.690, 0.890),
-                              (0.937, 0.353, 0.580), (0.404, 0.776, 0.353),
-                              (0.176, 0.204, 0.255), (0.890, 0.110, 0.200)] {
+            fonts.persistenceEnabled = false
+            for (r, g, b) in [
+                (0.286, 0.314, 0.875), (0.953, 0.451, 0.396),
+                (0.290, 0.776, 0.612), (0.945, 0.769, 0.298),
+                (0.553, 0.357, 0.969), (0.180, 0.690, 0.890),
+                (0.937, 0.353, 0.580), (0.404, 0.776, 0.353),
+                (0.176, 0.204, 0.255), (0.890, 0.110, 0.200),
+            ] {
                 store.add(PickedColor(r: r, g: g, b: b))
+            }
+            for (fam, size, weight) in [
+                ("Helvetica Neue", 17.0, "Bold"),
+                ("Georgia", 15.0, "Regular"),
+                ("Menlo", 13.0, "Regular"),
+                ("Avenir Next", 16.0, "Medium"),
+            ] {
+                fonts.add(
+                    PickedFont(
+                        family: fam, pointSize: size, weightName: weight,
+                        sampleSnippet: "The quick brown fox"))
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 self?.togglePanel()
@@ -63,8 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
         let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        button.image = NSImage(systemSymbolName: "eyedropper.halffull",
-                               accessibilityDescription: "Picker")?
+        button.image = NSImage(
+            systemSymbolName: "eyedropper.halffull",
+            accessibilityDescription: "Picker")?
             .withSymbolConfiguration(config)
         button.image?.isTemplate = true
         button.action = #selector(statusButtonClicked)
@@ -76,7 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// in-panel menu is gone and an accessory app has no Dock item to quit from.
     @objc private func statusButtonClicked() {
         let event = NSApp.currentEvent
-        let isSecondary = event?.type == .rightMouseUp
+        let isSecondary =
+            event?.type == .rightMouseUp
             || event?.modifierFlags.contains(.control) == true
         if isSecondary {
             showStatusMenu()
@@ -91,9 +139,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let quit = NSMenuItem(title: "Quit Picker", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
-        menu.popUp(positioning: nil,
-                   at: NSPoint(x: 0, y: button.bounds.height + 5),
-                   in: button)
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: button.bounds.height + 5),
+            in: button)
     }
 
     @objc private func quit() {
@@ -103,11 +152,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Panel
 
     private func setupPanel() {
-        let root = PanelView(store: store, app: app, onPick: { [weak self] in
-            self?.beginSampling()
-        })
+        let root = PanelView(
+            store: store, fonts: fonts, app: app,
+            onPick: { [weak self] in self?.beginSampling() },
+            onGrabFont: { [weak self] in self?.pickFont() },
+            onResize: { [weak self] in self?.resizeIfVisible() })
         hosting = NSHostingController(rootView: root)
-        hosting.sizingOptions = [.preferredContentSize]
+        // No automatic preferredContentSize resizing — it fires the moment the
+        // section content swaps and cancels the pill's slide. The panel is sized
+        // manually (layoutPanel / resizeIfVisible).
 
         let panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 400),
@@ -140,7 +193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePanel() {
-        if panel.isVisible { hidePanel() } else { showPanel() }
+        // Only treat the panel as open if it is *actually* on screen. After a screen
+        // lock or sleep, `isVisible` can stay true while the panel is occluded, which
+        // made every click "close" an already-invisible panel. The occlusion check
+        // self-heals that stuck state.
+        let onScreen = panel.isVisible && panel.occlusionState.contains(.visible)
+        if onScreen { hidePanel() } else { showPanel() }
     }
 
     private func showPanel() {
@@ -148,25 +206,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         positionPanel()
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
         panel.invalidateShadow()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.16
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
         }
-        if !isDemo { installGlobalMonitor() }   // keep panel open for visual testing
+        if !isDemo { installGlobalMonitor() }  // keep panel open for visual testing
     }
 
     private func hidePanel() {
         removeGlobalMonitor()
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.12
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                self?.panel.orderOut(nil)
-            }
-        })
+        NSAnimationContext.runAnimationGroup(
+            { ctx in
+                ctx.duration = 0.12
+                panel.animator().alphaValue = 0
+            },
+            completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.panel.orderOut(nil)
+                }
+            })
     }
 
     private func layoutPanel() {
@@ -190,7 +251,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
-    /// Grow/shrink to fit content (first pick, palette changes) while pinning the top edge.
+    /// Grow/shrink to fit content while pinning the top edge. `animate: false` so a
+    /// section switch (which resizes the panel) snaps instantly to the new page's
+    /// height rather than animating, leaving the pill slide as the only motion.
     private func resizeIfVisible() {
         guard panel != nil, panel.isVisible else { return }
         hosting.view.layoutSubtreeIfNeeded()
@@ -200,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var frame = panel.frame
         frame.size = newSize
         frame.origin.y = top - newSize.height
-        panel.setFrame(frame, display: true, animate: true)
+        panel.setFrame(frame, display: true, animate: false)
         panel.invalidateShadow()
     }
 
@@ -219,13 +282,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: Font picking
+
+    /// Drop the full-screen pick overlay so the user can click any text on screen
+    /// and grab its font. The panel hides while picking so the page is visible,
+    /// then returns to show the result.
+    private func pickFont() {
+        guard !fontPicker.isPicking else { return }
+
+        // Gate on Accessibility permission BEFORE hiding the panel — otherwise the
+        // panel just vanishes with no visible explanation. Keep it up, show the
+        // toast, fire the system prompt, and jump straight to the right settings pane.
+        guard AXIsProcessTrusted() else {
+            let key = "AXTrustedCheckOptionPrompt" as NSString
+            _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+            app.sayFont("Turn on Picker under Accessibility, then click again", ok: false)
+            if let url = URL(
+                string:
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+            {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+
+        let wasVisible = panel.isVisible
+        if wasVisible { hidePanel() }
+        app.isPickingFont = true
+
+        let outcome = fontPicker.start { [weak self] picked in
+            guard let self else { return }
+            self.app.isPickingFont = false
+            if let picked {
+                self.fonts.add(picked)
+                Haptics.confirm()
+                self.app.sayFont("Saved \(picked.family)", ok: true)
+            }
+            self.showPanel()
+        }
+
+        if case .needsPermission = outcome {
+            app.isPickingFont = false
+            if wasVisible { showPanel() }
+            app.sayFont("Turn on Picker under Accessibility, then click again", ok: false)
+        }
+    }
+
     // MARK: Dismiss-on-outside-click
 
     private func installGlobalMonitor() {
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [
+            .leftMouseDown, .rightMouseDown,
+        ]) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if self.app.isSampling { return }   // don't fight the loupe
+                if self.app.isSampling { return }  // don't fight the loupe
+                if self.app.isPickingFont { return }  // don't fight the font overlay
                 self.hidePanel()
             }
         }
