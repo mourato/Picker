@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 // MARK: - Color value semantics
 //
@@ -24,10 +24,11 @@ struct PickedColor: Identifiable, Codable, Equatable, Hashable {
 
     init?(nsColor: NSColor, sampledAt: Date = .now) {
         guard let c = nsColor.usingColorSpace(.sRGB) else { return nil }
-        self.init(r: Double(c.redComponent),
-                  g: Double(c.greenComponent),
-                  b: Double(c.blueComponent),
-                  sampledAt: sampledAt)
+        self.init(
+            r: Double(c.redComponent),
+            g: Double(c.greenComponent),
+            b: Double(c.blueComponent),
+            sampledAt: sampledAt)
     }
 
     var color: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: 1) }
@@ -125,7 +126,8 @@ final class ColorStore: ObservableObject {
 
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([PickedColor].self, from: data) else { return }
+            let decoded = try? JSONDecoder().decode([PickedColor].self, from: data)
+        else { return }
         colors = decoded
     }
 }
