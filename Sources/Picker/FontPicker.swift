@@ -29,6 +29,14 @@ final class FontPicker {
     private let ownPID = ProcessInfo.processInfo.processIdentifier
     private static let systemWide = AXUIElementCreateSystemWide()
 
+    // Chromium hover: AX can't name the font, so it's read from the page via JS once the
+    // cursor settles. These debounce that query and cache the result per text run so the
+    // label doesn't flicker or re-query while the pointer sits on the same run.
+    private var hoverJSWork: DispatchWorkItem?
+    private var hoverResolvedFrame: CGRect?
+    private var hoverLabel: String?
+    private var lastCursorAppKit: CGPoint = .zero
+
     var isPicking: Bool { window != nil }
 
     struct Hit {
@@ -157,6 +165,10 @@ final class FontPicker {
         runLoopSource = nil
         escMonitors.forEach { NSEvent.removeMonitor($0) }
         escMonitors = []
+        hoverJSWork?.cancel()
+        hoverJSWork = nil
+        hoverResolvedFrame = nil
+        hoverLabel = nil
         NSCursor.arrow.set()
         window?.orderOut(nil)
         window = nil
@@ -247,17 +259,64 @@ final class FontPicker {
 
     private func refresh(atAX ax: CGPoint) {
         let cursorAppKit = CGPoint(x: ax.x, y: Self.primaryHeight() - ax.y)
-        if let hit = readText(atAX: ax) {
-            current = hit
-            let label =
-                hit.font.sizeWeightLabel.isEmpty
-                ? hit.font.family
-                : "\(hit.font.family) · \(hit.font.sizeWeightLabel)"
-            view?.update(highlight: hit.frame, label: label, cursor: cursorAppKit)
-        } else {
+        lastCursorAppKit = cursorAppKit
+        hoverJSWork?.cancel()
+        hoverJSWork = nil
+
+        guard let hit = readText(atAX: ax) else {
             current = nil
             view?.update(highlight: nil, label: nil, cursor: cursorAppKit)
+            return
         }
+        current = hit
+
+        // Safari / native: the AX font is authoritative, show it immediately.
+        guard let bundle = hit.jsBundleID else {
+            view?.update(
+                highlight: hit.frame, label: Self.label(for: hit.font), cursor: cursorAppKit)
+            return
+        }
+
+        // Chromium: AX leaves the family (and often the size) blank. If we already read
+        // this exact run, reuse it; otherwise show the box now and read the real font from
+        // the page via JS once the pointer settles — a short debounce avoids spawning a
+        // query on every micro-move.
+        if hit.frame == hoverResolvedFrame, let cached = hoverLabel {
+            view?.update(highlight: hit.frame, label: cached, cursor: cursorAppKit)
+            return
+        }
+        view?.update(highlight: hit.frame, label: "Reading font…", cursor: cursorAppKit)
+        let runFrame = hit.frame
+        let work = DispatchWorkItem { [weak self] in
+            self?.fetchHoverFont(bundle: bundle, at: ax, runFrame: runFrame)
+        }
+        hoverJSWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
+    }
+
+    /// Read the real Chromium font for the run at `ax` and, if the pointer is still on
+    /// that same run, update the hover label with it.
+    private func fetchHoverFont(bundle: String, at ax: CGPoint, runFrame: CGRect) {
+        Task.detached {
+            let js = Self.fontViaJS(bundleID: bundle, screen: ax)
+            await MainActor.run { [weak self] in
+                guard let self, let hit = self.current, hit.frame == runFrame,
+                    let js, !js.family.isEmpty
+                else { return }
+                let resolved = PickedFont(
+                    family: js.family,
+                    pointSize: js.size > 0 ? js.size : hit.font.pointSize,
+                    weightName: js.weight ?? hit.font.weightName)
+                let lbl = Self.label(for: resolved)
+                self.hoverResolvedFrame = runFrame
+                self.hoverLabel = lbl
+                self.view?.update(highlight: runFrame, label: lbl, cursor: self.lastCursorAppKit)
+            }
+        }
+    }
+
+    private static func label(for f: PickedFont) -> String {
+        f.sizeWeightLabel.isEmpty ? f.family : "\(f.family) · \(f.sizeWeightLabel)"
     }
 
     private func commit(atAX ax: CGPoint) {
