@@ -79,7 +79,9 @@ struct PanelView: View {
         FontHeroCard(
             picked: shownFont(),
             fontReady: fontLoader.isReady(shownFont()?.family ?? ""),
-            onCopy: { copy($0) }, onFind: openURL
+            renderFamily: fontLoader.renderName(for: shownFont()?.family ?? ""),
+            onCopy: { copy($0) },
+            onFind: { openURL(fontLoader.findURL(for: shownFont()?.family ?? "")) }
         )
 
         GrabFontButton(isPicking: app.isPickingFont, action: onGrabFont)
@@ -88,7 +90,7 @@ struct PanelView: View {
             FontStrip(
                 fonts: fonts,
                 selectedID: selectedFontID,
-                ready: fontLoader.ready,
+                fontLoader: fontLoader,
                 onSelect: { f in
                     selectedFontID = f.id
                     copy(f.family)
@@ -644,8 +646,9 @@ private struct SectionSwitch: View {
 private struct FontHeroCard: View {
     var picked: PickedFont?
     var fontReady: Bool
+    var renderFamily: String  // the family to actually render the specimen with
     var onCopy: (String) -> Void
-    var onFind: (URL) -> Void
+    var onFind: () -> Void
 
     @State private var hovering = false
     @State private var justCopied = false
@@ -714,7 +717,7 @@ private struct FontHeroCard: View {
             // ascent/descent; pinning `firstTextBaseline` to a constant offset keeps
             // the bottom of the letters on the exact same line for every font.
             Text("AaBbCcDdEe")
-                .font(.custom(f.family, size: 32))
+                .font(.custom(renderFamily, size: 32))
                 .foregroundStyle(Ink.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -724,7 +727,7 @@ private struct FontHeroCard: View {
                 // updated in place, so the card doesn't re-animate.
                 .id(fontReady)
             Text(specimen)
-                .font(.custom(f.family, size: 15))
+                .font(.custom(renderFamily, size: 15))
                 .foregroundStyle(Ink.secondary)
                 .lineLimit(1)
                 .alignmentGuide(.top) { $0[.firstTextBaseline] - 14 }
@@ -746,7 +749,10 @@ private struct FontHeroCard: View {
 
     private func metaLine(_ f: PickedFont) -> String {
         let base = f.sizeWeightLabel
-        if !f.isInstalled {
+        // "approx." means the specimen is a system fallback — true only when the real
+        // face isn't available (downloaded faces, incl. oddly-named variable fonts,
+        // are NOT approximate even if the grabbed name doesn't resolve directly).
+        if !fontReady {
             return base.isEmpty
                 ? "Preview approximate — not installed"
                 : base + " · approx."
@@ -756,7 +762,7 @@ private struct FontHeroCard: View {
 
     private func findButton(_ f: PickedFont) -> some View {
         Button {
-            onFind(f.findURL)
+            onFind()
         } label: {
             HStack(spacing: 3) {
                 Text("Find")
@@ -852,7 +858,7 @@ private struct GrabFontButton: View {
 private struct FontStrip: View {
     @ObservedObject var fonts: FontStore
     var selectedID: PickedFont.ID?
-    var ready: Set<String>
+    @ObservedObject var fontLoader: FontLoader
     var onSelect: (PickedFont) -> Void
 
     @State private var clearHover = false
@@ -878,7 +884,8 @@ private struct FontStrip: View {
                         FontChip(
                             font: f,
                             selected: f.id == selectedID,
-                            fontReady: ready.contains(f.family.lowercased()),
+                            fontReady: fontLoader.isReady(f.family),
+                            renderFamily: fontLoader.renderName(for: f.family),
                             onTap: { onSelect(f) },
                             onDelete: { fonts.remove(f) }
                         )
@@ -935,6 +942,7 @@ private struct FontChip: View {
     var font: PickedFont
     var selected: Bool
     var fontReady: Bool
+    var renderFamily: String
     var onTap: () -> Void
     var onDelete: () -> Void
 
@@ -948,7 +956,7 @@ private struct FontChip: View {
             Button(action: onTap) {
                 VStack(spacing: 2) {
                     Text("Ag")
-                        .font(.custom(font.family, size: 22))
+                        .font(.custom(renderFamily, size: 22))
                         .foregroundStyle(Ink.primary)
                         .lineLimit(1)
                         .id(fontReady)  // re-resolve Font.custom once the real face loads

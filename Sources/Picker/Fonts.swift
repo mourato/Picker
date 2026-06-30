@@ -37,22 +37,6 @@ struct PickedFont: Identifiable, Codable, Equatable, Hashable {
         self.addedAt = addedAt
     }
 
-    /// Whether the real face is available to render — installed locally OR downloaded
-    /// and registered this run by `FontLoader`. Drives the "preview approximate" note.
-    /// Uses descriptor resolution (not `availableFontFamilies`, which doesn't list
-    /// process-registered fonts).
-    var isInstalled: Bool {
-        FontLoader.resolves(family)
-    }
-
-    /// Where to go to get the font. Google Fonts search is the best single
-    /// default — it resolves most web typefaces and links onward to foundries.
-    var findURL: URL {
-        let q = family.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? family
-        return URL(string: "https://fonts.google.com/?query=\(q)")
-            ?? URL(string: "https://fonts.google.com")!
-    }
-
     var sizeWeightLabel: String {
         var parts: [String] = []
         if let weightName { parts.append(weightName) }
