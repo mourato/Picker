@@ -641,30 +641,6 @@ private struct SectionSwitch: View {
 
 // MARK: - Font specimen card
 
-/// "Text states swap" (transitions.dev): the outgoing details blur and glide up and
-/// out while the incoming details blur in from just below — an in-place content swap,
-/// not a hard cut.
-private struct FontDetailSwap: ViewModifier {
-    var y: CGFloat
-    var blur: CGFloat
-    var opacity: Double
-    func body(content: Content) -> some View {
-        content.opacity(opacity).blur(radius: blur).offset(y: y)
-    }
-}
-
-extension AnyTransition {
-    fileprivate static var fontDetails: AnyTransition {
-        .asymmetric(
-            insertion: .modifier(
-                active: FontDetailSwap(y: 6, blur: 3, opacity: 0),
-                identity: FontDetailSwap(y: 0, blur: 0, opacity: 1)),
-            removal: .modifier(
-                active: FontDetailSwap(y: -6, blur: 3, opacity: 0),
-                identity: FontDetailSwap(y: 0, blur: 0, opacity: 1)))
-    }
-}
-
 private struct FontHeroCard: View {
     var picked: PickedFont?
     var fontReady: Bool
@@ -684,14 +660,15 @@ private struct FontHeroCard: View {
                     shape.fill(Color.primary.opacity(0.04))
                         .overlay(shape.stroke(Hairline.soft, lineWidth: 1))
 
-                    // Keyed by font id AND ready-state: selecting another saved font
-                    // swaps the set with a blurred up-and-down crossfade, and the same
-                    // crossfade plays again once the real face finishes downloading
-                    // (the id changes, forcing Font.custom to re-resolve the new face).
+                    // Selecting another saved font cross-fades the whole detail set in
+                    // place — no movement, every element pinned to a fixed slot so it
+                    // lands in the exact same spot whatever the font. Keyed by font id
+                    // only; the real-face re-resolve is handled inside `details` so it
+                    // doesn't kick off a second card-wide animation.
                     details(picked)
                         .padding(Space.lg)
-                        .id("\(picked.id)-\(fontReady)")
-                        .transition(.fontDetails)
+                        .id(picked.id)
+                        .transition(.opacity)
                 }
                 .clipShape(shape)
                 .contentShape(shape)
@@ -705,11 +682,14 @@ private struct FontHeroCard: View {
         }
         .frame(height: 168)
         .frame(maxWidth: .infinity)
-        .animation(Motion.fontSwap, value: picked.map { "\($0.id)-\(fontReady)" })
+        .animation(Motion.fontSwap, value: picked?.id)
     }
 
     private func details(_ f: PickedFont) -> some View {
         let specimen = (f.sampleSnippet?.isEmpty == false) ? f.sampleSnippet! : "AaBbCcDd 0123"
+        // Every row lives in a fixed-height slot so swapping fonts (with their
+        // different metrics) never nudges anything — the family, specimen, and sample
+        // sit at the exact same y for every saved font.
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: Space.sm) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -725,19 +705,26 @@ private struct FontHeroCard: View {
                 Spacer(minLength: Space.sm)
                 findButton(f)
             }
+            .frame(height: 38, alignment: .top)
 
-            Spacer(minLength: Space.sm)
+            Spacer(minLength: 0)
 
             Text("AaBbCcDdEe")
                 .font(.custom(f.family, size: 32))
                 .foregroundStyle(Ink.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
+                .frame(height: 42, alignment: .leading)
+                // Re-resolve Font.custom once the real face downloads — only this line,
+                // updated in place, so the card doesn't re-animate.
+                .id(fontReady)
             Text(specimen)
                 .font(.custom(f.family, size: 15))
                 .foregroundStyle(Ink.secondary)
                 .lineLimit(1)
-                .padding(.top, 4)
+                .frame(height: 20, alignment: .leading)
+                .padding(.top, 2)
+                .id(fontReady)
         }
     }
 
