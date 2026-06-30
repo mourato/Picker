@@ -29,12 +29,13 @@ final class FontPicker {
     private let ownPID = ProcessInfo.processInfo.processIdentifier
     private static let systemWide = AXUIElementCreateSystemWide()
 
-    // Chromium hover: AX can't name the font, so it's read from the page via JS once the
-    // cursor settles. These debounce that query and cache the result per text run so the
-    // label doesn't flicker or re-query while the pointer sits on the same run.
-    private var hoverJSWork: DispatchWorkItem?
+    // Chromium hover: AX can't name the font, so it's read from the page via a fast
+    // in-process JS query. The result is cached per text run, and only one query runs at a
+    // time (it chases the pointer if it moved) so the label never flickers or floods.
     private var hoverResolvedFrame: CGRect?
     private var hoverLabel: String?
+    private var hoverInFlight = false
+    private var lastAX: CGPoint = .zero
     private var lastCursorAppKit: CGPoint = .zero
 
     var isPicking: Bool { window != nil }
@@ -86,18 +87,27 @@ final class FontPicker {
     /// frame) only materialize once something queries the tree. A quick, bounded walk
     /// off the main thread enables AX so the hover highlight lands on the first try.
     private func warmChromiumAX() {
-        let pids = NSWorkspace.shared.runningApplications
-            .filter { Self.isChromium($0.bundleIdentifier) }
-            .map(\.processIdentifier)
-        guard !pids.isEmpty else { return }
+        let browsers: [(pid: pid_t, bundle: String)] = NSWorkspace.shared.runningApplications
+            .compactMap { app in
+                guard let b = app.bundleIdentifier, Self.isChromium(b) else { return nil }
+                return (app.processIdentifier, b)
+            }
+        guard !browsers.isEmpty else { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            for pid in pids {
+            for (pid, bundle) in browsers {
                 let app = AXUIElementCreateApplication(pid)
                 AXUIElementSetMessagingTimeout(app, 1.0)
                 // Documented Chromium switch to force-enable AX; harmless if unsupported.
                 AXUIElementSetAttributeValue(
                     app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
                 Self.warmWalk(app, depth: 0)
+                // Warm the in-process Apple-event/AppleScript path too: the first
+                // NSAppleScript execution pays a ~250ms subsystem init, so do it now (with
+                // a trivial JS) and the first real hover query lands in ~10ms.
+                let warm =
+                    "tell application id \"\(bundle)\" to tell active tab of front window "
+                    + "to execute javascript \"1\""
+                _ = NSAppleScript(source: warm)?.executeAndReturnError(nil)
             }
         }
     }
@@ -165,10 +175,9 @@ final class FontPicker {
         runLoopSource = nil
         escMonitors.forEach { NSEvent.removeMonitor($0) }
         escMonitors = []
-        hoverJSWork?.cancel()
-        hoverJSWork = nil
         hoverResolvedFrame = nil
         hoverLabel = nil
+        hoverInFlight = false
         NSCursor.arrow.set()
         window?.orderOut(nil)
         window = nil
@@ -259,9 +268,8 @@ final class FontPicker {
 
     private func refresh(atAX ax: CGPoint) {
         let cursorAppKit = CGPoint(x: ax.x, y: Self.primaryHeight() - ax.y)
+        lastAX = ax
         lastCursorAppKit = cursorAppKit
-        hoverJSWork?.cancel()
-        hoverJSWork = nil
 
         guard let hit = readText(atAX: ax) else {
             current = nil
@@ -277,40 +285,48 @@ final class FontPicker {
             return
         }
 
-        // Chromium: AX leaves the family (and often the size) blank. If we already read
-        // this exact run, reuse it; otherwise show the box now and read the real font from
-        // the page via JS once the pointer settles — a short debounce avoids spawning a
-        // query on every micro-move.
+        // Chromium: AX leaves the family (and usually the size) blank. Reuse the cached
+        // read for this run; otherwise show the box now and resolve the real font from the
+        // page. The in-process JS read is ~10ms — fast enough that the name lands about a
+        // frame later, so we show the box with no placeholder text rather than "Reading…".
         if hit.frame == hoverResolvedFrame, let cached = hoverLabel {
             view?.update(highlight: hit.frame, label: cached, cursor: cursorAppKit)
-            return
+        } else {
+            view?.update(highlight: hit.frame, label: "", cursor: cursorAppKit)  // box, chip pending
+            resolveHoverFont(bundle: bundle, runFrame: hit.frame)
         }
-        view?.update(highlight: hit.frame, label: "Reading font…", cursor: cursorAppKit)
-        let runFrame = hit.frame
-        let work = DispatchWorkItem { [weak self] in
-            self?.fetchHoverFont(bundle: bundle, at: ax, runFrame: runFrame)
-        }
-        hoverJSWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
     }
 
-    /// Read the real Chromium font for the run at `ax` and, if the pointer is still on
-    /// that same run, update the hover label with it.
-    private func fetchHoverFont(bundle: String, at ax: CGPoint, runFrame: CGRect) {
+    /// Resolve the real Chromium font for the current run and show it. One query runs at a
+    /// time; if the pointer moved to another unresolved run by the time it returns, it
+    /// chases that one, so the label always converges on whatever the pointer is over.
+    private func resolveHoverFont(bundle: String, runFrame: CGRect) {
+        if hoverInFlight { return }
+        hoverInFlight = true
+        let ax = lastAX
         Task.detached {
             let js = Self.fontViaJS(bundleID: bundle, screen: ax)
             await MainActor.run { [weak self] in
-                guard let self, let hit = self.current, hit.frame == runFrame,
-                    let js, !js.family.isEmpty
-                else { return }
-                let resolved = PickedFont(
-                    family: js.family,
-                    pointSize: js.size > 0 ? js.size : hit.font.pointSize,
-                    weightName: js.weight ?? hit.font.weightName)
-                let lbl = Self.label(for: resolved)
-                self.hoverResolvedFrame = runFrame
-                self.hoverLabel = lbl
-                self.view?.update(highlight: runFrame, label: lbl, cursor: self.lastCursorAppKit)
+                guard let self else { return }
+                self.hoverInFlight = false
+                if let js, !js.family.isEmpty, let hit = self.current, hit.frame == runFrame {
+                    let resolved = PickedFont(
+                        family: js.family,
+                        pointSize: js.size > 0 ? js.size : hit.font.pointSize,
+                        weightName: js.weight ?? hit.font.weightName)
+                    let lbl = Self.label(for: resolved)
+                    self.hoverResolvedFrame = runFrame
+                    self.hoverLabel = lbl
+                    self.view?.update(
+                        highlight: runFrame, label: lbl, cursor: self.lastCursorAppKit)
+                }
+                // Pointer already on a different, still-unresolved run? Chase it — but never
+                // the run we just tried, so a failed read can't busy-loop.
+                if let hit = self.current, let b = hit.jsBundleID,
+                    hit.frame != runFrame, hit.frame != self.hoverResolvedFrame
+                {
+                    self.resolveHoverFont(bundle: b, runFrame: hit.frame)
+                }
             }
         }
     }
@@ -371,23 +387,15 @@ final class FontPicker {
             "tell application id \"\(bundleID)\" to tell active tab of front window "
             + "to execute javascript \"\(js)\""
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        proc.arguments = ["-e", script]
-        let out = Pipe()
-        proc.standardOutput = out
-        proc.standardError = Pipe()
-        do { try proc.run() } catch { return nil }
-        let deadline = Date().addingTimeInterval(2.5)
-        while proc.isRunning && Date() < deadline { usleep(15_000) }
-        if proc.isRunning {
-            proc.terminate()
-            return nil
-        }
-        guard proc.terminationStatus == 0 else { return nil }  // JS off / denied / error
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        guard
-            let result = String(data: data, encoding: .utf8)?
+        // In-process AppleScript, not an osascript subprocess: ~10ms vs ~130ms once the
+        // Apple-event subsystem is warm (see warmChromiumAX), which is what lets the hover
+        // label resolve fast enough to feel instant. nil result ⇒ JS off / Automation
+        // denied / error. Safe on a background thread (executeAndReturnError blocks the
+        // caller without pumping the main run loop).
+        var err: NSDictionary?
+        guard let descriptor = NSAppleScript(source: script)?.executeAndReturnError(&err),
+            err == nil,
+            let result = descriptor.stringValue?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !result.isEmpty
         else { return nil }
         let parts = result.components(separatedBy: "|||")
@@ -701,7 +709,14 @@ final class OverlayView: NSView {
             path.stroke()
         }
 
-        drawHUD(label ?? "Click any text to grab its font")
+        // nil → nothing under the pointer, show the prompt. "" → text is under the pointer
+        // but its font is still resolving (Chromium), so draw no chip — the box alone reads
+        // as instant and the name pops in a frame later. Non-empty → show the font.
+        if let label {
+            if !label.isEmpty { drawHUD(label) }
+        } else {
+            drawHUD("Click any text to grab its font")
+        }
     }
 
     private func drawCrosshair(at p: CGPoint, color: NSColor) {
