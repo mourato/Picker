@@ -66,9 +66,44 @@ final class FontPicker {
         // block indefinitely if the app under the cursor is slow to answer — which
         // would freeze the whole picker. 0.25s is plenty for a live hit-test.
         AXUIElementSetMessagingTimeout(Self.systemWide, 0.25)
+        warmChromiumAX()
         self.onResult = onResult
         present()
         return .began
+    }
+
+    /// Nudge any running Chromium browser into building its accessibility tree before
+    /// the first hover. Chromium turns AX on lazily, so the very first hit test on a
+    /// freshly launched browser can land on an empty web area — the text run (and its
+    /// frame) only materialize once something queries the tree. A quick, bounded walk
+    /// off the main thread enables AX so the hover highlight lands on the first try.
+    private func warmChromiumAX() {
+        let pids = NSWorkspace.shared.runningApplications
+            .filter { Self.isChromium($0.bundleIdentifier) }
+            .map(\.processIdentifier)
+        guard !pids.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            for pid in pids {
+                let app = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(app, 1.0)
+                // Documented Chromium switch to force-enable AX; harmless if unsupported.
+                AXUIElementSetAttributeValue(
+                    app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+                Self.warmWalk(app, depth: 0)
+            }
+        }
+    }
+
+    /// Shallow subtree touch — enough AX traffic to flip Chromium's tree on without
+    /// crawling the whole page.
+    nonisolated private static func warmWalk(_ e: AXUIElement, depth: Int) {
+        if depth > 5 { return }
+        var childrenRef: AnyObject?
+        guard
+            AXUIElementCopyAttributeValue(e, "AXChildren" as CFString, &childrenRef) == .success,
+            let children = childrenRef as? [AXUIElement]
+        else { return }
+        for child in children.prefix(12) { warmWalk(child, depth: depth + 1) }
     }
 
     func cancel() { finish(nil) }
@@ -353,14 +388,24 @@ final class FontPicker {
         // directly, but on padding/edges it returns a container — descend to the text
         // run under the point. Either way we only ever match actual text, so the
         // highlight hugs the run and never the surrounding div/group/cell.
-        guard let textEl = textLeaf(from: e, at: ax), let font = fontDict(at: textEl) else {
-            return nil
-        }
+        guard let textEl = textLeaf(from: e, at: ax) else { return nil }
+
+        // Who owns this text? The owner decides whether a missing font dictionary is
+        // fatal. Chromium's Blink tree routinely exposes the text run and its frame but
+        // *no* AXFont — there is no font attribute to read at all, especially right
+        // after launch. Safari/WebKit and native apps always carry AXFont, so for them a
+        // nil dictionary really does mean "not text". For Chromium we must NOT bail: we
+        // still highlight the run and read the real family from the page via JavaScript.
+        let bundle = NSRunningApplication(processIdentifier: epid)?.bundleIdentifier
+        let chromium = Self.isChromium(bundle)
+
+        let font = fontDict(at: textEl)
+        if font == nil && !chromium { return nil }  // unreadable and not JS-probeable → ignore
 
         let family = cleanFamily(
-            (font["AXFontFamily"] as? String) ?? (font["AXFontName"] as? String) ?? "Unknown")
-        let size = (font["AXFontSize"] as? Double) ?? 0
-        let weight = weight(fromName: font["AXFontName"] as? String)
+            (font?["AXFontFamily"] as? String) ?? (font?["AXFontName"] as? String) ?? "Unknown")
+        let size = (font?["AXFontSize"] as? Double) ?? 0
+        let weight = weight(fromName: font?["AXFontName"] as? String)
         let text =
             (axString(textEl, "AXValue") ?? "")
             .replacingOccurrences(of: "\n", with: " ")
@@ -380,10 +425,9 @@ final class FontPicker {
             weightName: weight,
             sampleSnippet: text.isEmpty ? nil : String(text.prefix(60)))
 
-        // Chromium's AX never reports the family — flag it so commit() reads the real
-        // family from the page via JavaScript.
-        let bundle = NSRunningApplication(processIdentifier: epid)?.bundleIdentifier
-        let jsBundle = (family == "Unknown" && Self.isChromium(bundle)) ? bundle : nil
+        // Chromium's AX doesn't reliably report the family — flag it so commit() reads
+        // the real family (and size/weight) from the page via JavaScript.
+        let jsBundle = (family == "Unknown" && chromium) ? bundle : nil
         return Hit(font: picked, frame: appKitFrame, jsBundleID: jsBundle)
     }
 
