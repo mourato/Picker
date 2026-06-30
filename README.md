@@ -53,6 +53,7 @@ A sliding pill switches between the two; nothing else moves.
 - macOS 26 (Tahoe) or later — Liquid Glass and the loupe need the macOS 26 SDK
 - Xcode 26 / Swift 6.2 to build
 - **Grab Font** needs Accessibility permission (macOS prompts on first use)
+- **Grabbing fonts in Chrome/Chromium** also needs the browser to allow scripted access to the page: enable **View ▸ Developer ▸ Allow JavaScript from Apple Events** in Chrome, and grant Picker **Automation** access to the browser when prompted. Safari and native apps need neither.
 
 ## Build & run
 
