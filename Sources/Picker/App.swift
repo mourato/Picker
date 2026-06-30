@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let fonts = FontStore()
     let app = AppState()
     let fontPicker = FontPicker()
+    let fontLoader = FontLoader()
 
     private var statusItem: NSStatusItem!
     private var panel: FloatingPanel!
@@ -87,10 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.add(PickedColor(r: r, g: g, b: b))
             }
             for (fam, size, weight) in [
-                ("Helvetica Neue", 17.0, "Bold"),
-                ("Georgia", 15.0, "Regular"),
-                ("Menlo", 13.0, "Regular"),
                 ("Avenir Next", 16.0, "Medium"),
+                ("Inter", 16.0, "Medium"),
+                ("Playfair Display", 22.0, "Bold"),
+                ("Pacifico", 24.0, "Regular"),
+                ("Lobster", 28.0, "Regular"),
             ] {
                 fonts.add(
                     PickedFont(
@@ -153,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPanel() {
         let root = PanelView(
-            store: store, fonts: fonts, app: app,
+            store: store, fonts: fonts, app: app, fontLoader: fontLoader,
             onPick: { [weak self] in self?.beginSampling() },
             onGrabFont: { [weak self] in self?.pickFont() },
             onResize: { [weak self] in self?.resizeIfVisible() })

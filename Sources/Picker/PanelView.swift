@@ -11,6 +11,7 @@ struct PanelView: View {
     @ObservedObject var store: ColorStore
     @ObservedObject var fonts: FontStore
     @ObservedObject var app: AppState
+    @ObservedObject var fontLoader: FontLoader
     var onPick: () -> Void
     var onGrabFont: () -> Void
     var onResize: () -> Void
@@ -49,6 +50,8 @@ struct PanelView: View {
             if feedback.ok { selectedFontID = nil }
             flash(feedback.text, icon: feedback.ok ? "checkmark" : "exclamationmark.triangle.fill")
         }
+        .onAppear { ensureFontsLoaded() }
+        .onChange(of: fonts.fonts) { _, _ in ensureFontsLoaded() }
     }
 
     // MARK: Colors section
@@ -73,7 +76,11 @@ struct PanelView: View {
     // MARK: Fonts section
 
     @ViewBuilder private var fontsSection: some View {
-        FontHeroCard(picked: shownFont(), onCopy: { copy($0) }, onFind: openURL)
+        FontHeroCard(
+            picked: shownFont(),
+            fontReady: fontLoader.isReady(shownFont()?.family ?? ""),
+            onCopy: { copy($0) }, onFind: openURL
+        )
 
         GrabFontButton(isPicking: app.isPickingFont, action: onGrabFont)
 
@@ -81,6 +88,7 @@ struct PanelView: View {
             FontStrip(
                 fonts: fonts,
                 selectedID: selectedFontID,
+                ready: fontLoader.ready,
                 onSelect: { f in
                     selectedFontID = f.id
                     copy(f.family)
@@ -88,6 +96,12 @@ struct PanelView: View {
             )
             .transition(.opacity)
         }
+    }
+
+    /// Download + register the real face for every saved font that isn't installed,
+    /// so the hero specimen and the chips render in the actual typeface.
+    private func ensureFontsLoaded() {
+        for f in fonts.fonts { fontLoader.ensure(f.family) }
     }
 
     private func shownFont() -> PickedFont? {
@@ -653,6 +667,7 @@ extension AnyTransition {
 
 private struct FontHeroCard: View {
     var picked: PickedFont?
+    var fontReady: Bool
     var onCopy: (String) -> Void
     var onFind: (URL) -> Void
 
@@ -669,11 +684,13 @@ private struct FontHeroCard: View {
                     shape.fill(Color.primary.opacity(0.04))
                         .overlay(shape.stroke(Hairline.soft, lineWidth: 1))
 
-                    // Keyed by font id: selecting another saved font swaps the old set
-                    // out and the new set in with a blurred up-and-down crossfade.
+                    // Keyed by font id AND ready-state: selecting another saved font
+                    // swaps the set with a blurred up-and-down crossfade, and the same
+                    // crossfade plays again once the real face finishes downloading
+                    // (the id changes, forcing Font.custom to re-resolve the new face).
                     details(picked)
                         .padding(Space.lg)
-                        .id(picked.id)
+                        .id("\(picked.id)-\(fontReady)")
                         .transition(.fontDetails)
                 }
                 .clipShape(shape)
@@ -688,7 +705,7 @@ private struct FontHeroCard: View {
         }
         .frame(height: 168)
         .frame(maxWidth: .infinity)
-        .animation(Motion.fontSwap, value: picked?.id)
+        .animation(Motion.fontSwap, value: picked.map { "\($0.id)-\(fontReady)" })
     }
 
     private func details(_ f: PickedFont) -> some View {
@@ -843,6 +860,7 @@ private struct GrabFontButton: View {
 private struct FontStrip: View {
     @ObservedObject var fonts: FontStore
     var selectedID: PickedFont.ID?
+    var ready: Set<String>
     var onSelect: (PickedFont) -> Void
 
     @State private var clearHover = false
@@ -868,6 +886,7 @@ private struct FontStrip: View {
                         FontChip(
                             font: f,
                             selected: f.id == selectedID,
+                            fontReady: ready.contains(f.family.lowercased()),
                             onTap: { onSelect(f) },
                             onDelete: { fonts.remove(f) }
                         )
@@ -923,6 +942,7 @@ private struct FontStrip: View {
 private struct FontChip: View {
     var font: PickedFont
     var selected: Bool
+    var fontReady: Bool
     var onTap: () -> Void
     var onDelete: () -> Void
 
@@ -939,6 +959,7 @@ private struct FontChip: View {
                         .font(.custom(font.family, size: 22))
                         .foregroundStyle(Ink.primary)
                         .lineLimit(1)
+                        .id(fontReady)  // re-resolve Font.custom once the real face loads
                     Text(font.family)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Ink.tertiary)
