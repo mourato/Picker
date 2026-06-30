@@ -46,6 +46,8 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Picker reads the font of text you click on in Chromium browsers (whose accessibility doesn't expose font names) by asking the browser for the page's computed style.</string>
 </dict>
 </plist>
 PLIST
