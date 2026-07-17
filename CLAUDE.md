@@ -28,7 +28,7 @@ Stores persist to `UserDefaults`: colors under `picker.pickedColors.v1` (capped 
 
 ## Color loupe
 
-"Pick a Color" (panel button or global hotkey, default **⌃⌥C** via Carbon `RegisterEventHotKey`) gates on **Screen Recording** (`CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess`) before hiding the panel — toast + System Settings deep link on deny. On grant: freeze every display, show loupe overlay, label uses the preferred format (gear in the panel). Loupe zoom defaults to 12× (range 4…32); change it in settings or with **−** / **=** during capture (persists). Click commits; Esc / right-click cancels.
+"Pick a Color" (panel button or global hotkey, default **⌃⌥C** via Carbon `RegisterEventHotKey`) gates on **Screen Recording** (`CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess`) before hiding the panel — toast + System Settings deep link on deny. On grant: freeze every display, show loupe overlay (app activates briefly so Esc / − / = are delivered and consumed — global key monitors cannot swallow events), label uses the preferred format (gear in the panel). Loupe zoom defaults to 12× (range 4…32); change it in settings or with **−** / **=** during capture (persists). Click commits; Esc / right-click cancels.
 
 ## Fonts feature
 
