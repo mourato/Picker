@@ -21,6 +21,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 cp "${BIN_DIR}/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
 cp "Resources/AppIcon.icns" "${RES_DIR}/AppIcon.icns"
+cp "Resources/MenuBarIcon.png" "${RES_DIR}/MenuBarIcon.png"
 
 cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

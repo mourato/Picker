@@ -121,15 +121,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
-        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        button.image = NSImage(
-            systemSymbolName: "eyedropper.halffull",
-            accessibilityDescription: "Picker")?
-            .withSymbolConfiguration(config)
-        button.image?.isTemplate = true
+        button.image = Self.menuBarIcon()
         button.action = #selector(statusButtonClicked)
         button.target = self
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    private static func menuBarIcon() -> NSImage {
+        if let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "png"),
+            let image = NSImage(contentsOf: url)
+        {
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = false
+            return image
+        }
+
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        let image =
+            NSImage(
+                systemSymbolName: "eyedropper.halffull",
+                accessibilityDescription: "Picker")?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = true
+        return image ?? NSImage()
     }
 
     /// Left click toggles the panel; right- or control-click shows Quit, since the
