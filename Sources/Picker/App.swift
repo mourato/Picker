@@ -346,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Capture while the panel can stay up (excluded from the freeze), then
         // present the overlay and only then tuck the panel away — no desktop flash.
         let wasVisible = panel.isVisible
+        let paletteSnapshot = store.colors
         app.isSampling = true
 
         Task { @MainActor in
@@ -372,21 +373,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onPresented: { [weak self] in
                     self?.hidePanel(animated: false)
                 },
-                onWillDismiss: { [weak self] picked in
-                    // Successful pick leaves the panel closed. Cancel restores it
-                    // under the loupe when it was open, so the desktop does not flash.
-                    guard picked == nil, wasVisible else { return }
+                onPicked: { [weak self] picked, endingSession in
+                    self?.store.appendAlways(picked)
+                    if !endingSession { Haptics.tap() }
+                },
+                onWillDismiss: { [weak self] outcome in
+                    // Cancel restores the panel under the loupe when it was open.
+                    guard case .cancelled = outcome, wasVisible else { return }
                     self?.showPanel(animated: false)
+                },
+                onResult: { [weak self] outcome in
+                    guard let self else { return }
+                    self.app.isSampling = false
+                    switch outcome {
+                    case .committed(let session):
+                        let text = session.map {
+                            $0.string(for: self.settings.clipboardFormat)
+                        }.joined(separator: "\n")
+                        Clipboard.copy(text)
+                        Haptics.confirm()
+                    case .cancelled:
+                        // Restore pre-session palette (covers duplicate-collapse + cap eviction).
+                        self.store.replaceAll(paletteSnapshot)
+                    }
                 }
-            ) { [weak self] picked in
-                guard let self else { return }
-                self.app.isSampling = false
-                if let picked {
-                    self.store.add(picked)
-                    Clipboard.copy(picked.string(for: self.settings.clipboardFormat))
-                    Haptics.confirm()
-                }
-            }
+            )
 
             if case .needsPermission = outcome {
                 app.isSampling = false

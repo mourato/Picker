@@ -30,14 +30,14 @@ Grab any pixel on screen as HEX / RGB / HSL / HSB — or click any text in any a
 
 Picker lives in your menu bar. Click it and you get two tools behind one glass panel:
 
-- **Colors** — hit **Pick a Color** (or press **⌃⌥C**) and the displays freeze under a magnified loupe. Line up the exact pixel anywhere on screen and click; the color is saved to your palette and copied to the clipboard. Loupe/hero format and clipboard format are chosen separately in settings (HEX / RGB / HSL / HSB). The panel stays closed after a successful pick.
+- **Colors** — hit **Pick a Color** (or press **⌃⌥C**) and the displays freeze under a magnified loupe. Line up the exact pixel and click to capture; hold **Shift** while clicking to grab more colors in one session (a floating shelf shows what you've picked). A final click without Shift ends the session: every color is saved to your palette and copied to the clipboard (one line per color). Loupe/hero format and clipboard format are chosen separately in settings (HEX / RGB / HSL / HSB). The panel stays closed after a successful session; Esc cancels and undoes picks from that session.
 - **Fonts** — hit **Grab Font** and your cursor becomes a text picker. Hover any text in **Safari or Chrome** (and other Chromium browsers), another app, or a dropdown — a crosshair highlights the exact run and reads its family and size — then click to keep it. The card shows a live specimen **in the font's real typeface** (downloading it if you don't already have it), and **Find** takes you to the font's source. A saved-fonts strip lets you flip between everything you've grabbed.
 
 A sliding pill switches between the two; nothing else moves.
 
 ## Features
 
-- **Magnified-pixel sampling** — a freeze loupe captures every display, then magnifies the frozen bitmap pixel-by-pixel so you grab the exact one every time. Requires **Screen Recording** permission (macOS prompts on first use). Adjust zoom with **−** / **=**, loupe size with **⌘−** / **⌘=**; from **8×** a pixel grid appears inside the loupe (toggle it off in settings if you prefer a clean magnifier).
+- **Magnified-pixel sampling** — a freeze loupe captures every display, then magnifies the frozen bitmap pixel-by-pixel so you grab the exact one every time. **Shift+click** to capture multiple colors in one session (floating shelf); click without Shift to finish. Requires **Screen Recording** permission (macOS prompts on first use). Adjust zoom with **−** / **=**, loupe size with **⌘−** / **⌘=**; from **8×** a pixel grid appears inside the loupe (toggle it off in settings if you prefer a clean magnifier).
 - **Global pick shortcut** — default **⌃⌥C**; change it under the gear. Works even when another app is focused.
 - **Grab any font, anywhere** — a click-through overlay reads the text *under* your cursor through the accessibility tree, so it works on web pages (Safari/WebKit **and Chrome/Chromium**), native apps, and even items in an already-open dropdown — highlighting the actual text run, never a surrounding box. Chromium hides the font family from accessibility, so for those browsers Picker reads it straight from the page's computed style — and the hover label resolves instantly.
 - **Liquid Glass** — a real macOS 26 glass panel, not a mockup.
@@ -98,7 +98,8 @@ Sources/Picker/
 ├── FontPicker.swift    # click-to-grab overlay (CGEventTap + accessibility reading)
 ├── FontLoader.swift    # downloads/registers real faces + Find URL routing
 ├── DesignSystem.swift  # tokens: ink, spacing, radii, motion
-└── ColorSampler.swift  # freeze loupe (ScreenCaptureKit + overlay)
+├── ColorSampler.swift  # freeze loupe (ScreenCaptureKit + overlay + multi-pick shelf)
+├── CaptureShelfView.swift  # floating swatch strip + CaptureShelfController
 ```
 
 ## License

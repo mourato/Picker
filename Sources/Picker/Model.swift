@@ -468,6 +468,20 @@ final class ColorStore: ObservableObject {
         persist()
     }
 
+    /// Always inserts at the front (no consecutive-hex collapse). Used by multi-pick
+    /// loupe sessions so shelf, palette, and clipboard stay 1:1 with each click.
+    func appendAlways(_ color: PickedColor) {
+        colors.insert(color, at: 0)
+        if colors.count > limit { colors.removeLast(colors.count - limit) }
+        persist()
+    }
+
+    /// Replace the whole palette (e.g. cancel-restore of a pre-session snapshot).
+    func replaceAll(_ colors: [PickedColor]) {
+        self.colors = colors
+        persist()
+    }
+
     func remove(_ color: PickedColor) {
         colors.removeAll { $0.id == color.id }
         persist()

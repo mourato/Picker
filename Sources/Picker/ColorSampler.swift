@@ -10,6 +10,19 @@ import ScreenCaptureKit
 // while the cursor moves — so the label can show HEX / RGB / HSL / HSB from
 // AppSettings. Requires Screen Recording.
 
+enum SamplingOutcome: Equatable {
+    /// Session finished with a final click (includes every pick in the session).
+    case committed([PickedColor])
+    /// Esc / right-click — host should restore any pre-session palette snapshot.
+    case cancelled([PickedColor])
+
+    var session: [PickedColor] {
+        switch self {
+        case .committed(let colors), .cancelled(let colors): colors
+        }
+    }
+}
+
 @MainActor
 final class ColorSampler {
 
@@ -23,8 +36,12 @@ final class ColorSampler {
 
     private var overlays: [Overlay] = []
     private var keyMonitor: Any?
-    private var onResult: ((PickedColor?) -> Void)?
+    /// `(color, endingSession)` — `endingSession` is true on the final non-Shift click.
+    private var onPicked: ((PickedColor, Bool) -> Void)?
+    private var onResult: ((SamplingOutcome) -> Void)?
     private var frames: [FrozenFrame] = []
+    private var sessionColors: [PickedColor] = []
+    private let shelf = CaptureShelfController()
     private var formatProvider: () -> ColorDisplayFormat = { .hex }
     private var magnificationProvider: () -> Double = { PickShortcut.magnificationDefault }
     private var radiusProvider: () -> Double = { PickShortcut.loupeRadiusDefault }
@@ -32,9 +49,9 @@ final class ColorSampler {
     private var onMagnificationChange: ((Double) -> Void)?
     private var onRadiusChange: ((Double) -> Void)?
     private var onPresented: (() -> Void)?
-    /// Called just before the overlay is removed, with the pick result (`nil` = cancel).
-    /// Hosts that want to reopen the panel under the loupe (cancel path) should do it here.
-    private var onWillDismiss: ((PickedColor?) -> Void)?
+    /// Called just before the overlay is removed. Reveal the panel on cancel when
+    /// it was open so tearing down the loupe does not flash the live desktop.
+    private var onWillDismiss: ((SamplingOutcome) -> Void)?
     private var currentColor: PickedColor?
     private var magnification: Double = PickShortcut.magnificationDefault
     private var loupeRadius: Double = PickShortcut.loupeRadiusDefault
@@ -55,10 +72,10 @@ final class ColorSampler {
     ///
     /// - Parameters:
     ///   - onPresented: Called once the overlay is on screen (hide the panel here).
-    ///   - onWillDismiss: Called just before the overlay is removed, with the pick
-    ///     result. Reveal the panel here on cancel (when it was open) so tearing
-    ///     down the loupe does not flash the live desktop; leave it closed on a
-    ///     successful pick.
+    ///   - onPicked: Called after each captured color. Second argument is `true` when
+    ///     this pick ends the session (final click without Shift).
+    ///   - onWillDismiss: Called just before the overlay is removed.
+    ///   - onResult: Called after teardown with the session outcome.
     func start(
         freezeScope: FreezeScope,
         formatProvider: @escaping () -> ColorDisplayFormat,
@@ -68,8 +85,9 @@ final class ColorSampler {
         onMagnificationChange: @escaping (Double) -> Void,
         onRadiusChange: @escaping (Double) -> Void,
         onPresented: @escaping () -> Void,
-        onWillDismiss: @escaping (PickedColor?) -> Void,
-        onResult: @escaping (PickedColor?) -> Void
+        onPicked: @escaping (PickedColor, Bool) -> Void,
+        onWillDismiss: @escaping (SamplingOutcome) -> Void,
+        onResult: @escaping (SamplingOutcome) -> Void
     ) async -> Start {
         guard ensureScreenAccess() else { return .needsPermission }
         guard !isSampling else { return .began }
@@ -84,7 +102,9 @@ final class ColorSampler {
             self.onMagnificationChange = onMagnificationChange
             self.onRadiusChange = onRadiusChange
             self.onPresented = onPresented
+            self.onPicked = onPicked
             self.onWillDismiss = onWillDismiss
+            self.sessionColors = []
             self.magnification = AppSettings.clampMagnification(magnificationProvider())
             self.loupeRadius = AppSettings.clampLoupeRadius(radiusProvider())
             self.showPixelGrid = showPixelGridProvider()
@@ -98,7 +118,7 @@ final class ColorSampler {
         }
     }
 
-    func cancel() { finish(nil) }
+    func cancel() { finish(.cancelled(sessionColors)) }
 
     // MARK: Permission
 
@@ -220,7 +240,7 @@ final class ColorSampler {
             v.loupeRadius = loupeRadius
             v.showPixelGrid = showPixelGrid
             v.onMove = { [weak self] global in self?.refresh(atAppKit: global) }
-            v.onCommit = { [weak self] in self?.commit() }
+            v.onCommit = { [weak self] shiftHeld in self?.handleClick(shiftHeld: shiftHeld) }
             v.onCancel = { [weak self] in self?.cancel() }
             v.onKey = { [weak self] event in self?.handleKey(event) ?? false }
             win.contentView = v
@@ -256,21 +276,23 @@ final class ColorSampler {
         onPresented?()
     }
 
-    private func finish(_ color: PickedColor?) {
-        // Let the host reopen the panel under the loupe (typically on cancel) before
-        // the overlay goes away — otherwise the live desktop flashes through.
-        onWillDismiss?(color)
+    private func finish(_ outcome: SamplingOutcome) {
+        // Let the host reopen the panel under the loupe on cancel before the overlay
+        // goes away — otherwise the live desktop flashes through.
+        onWillDismiss?(outcome)
 
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
         NSCursor.arrow.set()
+        shelf.hide()
         for overlay in overlays {
             overlay.window.orderOut(nil)
         }
         overlays = []
         frames = []
+        sessionColors = []
         currentColor = nil
         formatProvider = { .hex }
         magnificationProvider = { PickShortcut.magnificationDefault }
@@ -279,10 +301,11 @@ final class ColorSampler {
         onMagnificationChange = nil
         onRadiusChange = nil
         onPresented = nil
+        onPicked = nil
         onWillDismiss = nil
         let callback = onResult
         onResult = nil
-        callback?(color)
+        callback?(outcome)
     }
 
     /// Local monitor only — requires us to be the active/key app (see present()).
@@ -368,10 +391,39 @@ final class ColorSampler {
             overlay.view.update(
                 cursor: point, color: color, label: label, frames: frames)
         }
+        positionShelfIfNeeded(at: point)
     }
 
-    private func commit() {
-        finish(currentColor)
+    private func handleClick(shiftHeld: Bool) {
+        if shiftHeld {
+            guard let color = currentColor else { return }
+            sessionColors.append(color)
+            onPicked?(color, false)
+            refreshShelf()
+            return
+        }
+
+        if let color = currentColor {
+            sessionColors.append(color)
+            onPicked?(color, true)
+        }
+
+        if sessionColors.isEmpty {
+            finish(.cancelled([]))
+        } else {
+            finish(.committed(sessionColors))
+        }
+    }
+
+    // MARK: Capture shelf
+
+    private func refreshShelf() {
+        shelf.show(colors: sessionColors, format: formatProvider())
+    }
+
+    private func positionShelfIfNeeded(at point: CGPoint) {
+        guard !sessionColors.isEmpty else { return }
+        shelf.followCursorIfScreenChanged(at: point)
     }
 
     /// Sample one pixel from the frozen frame that contains `point` (AppKit global).
@@ -433,7 +485,7 @@ final class LoupeOverlayView: NSView {
     var screenFrame: CGRect = .zero
 
     var onMove: ((CGPoint) -> Void)?
-    var onCommit: (() -> Void)?
+    var onCommit: ((Bool) -> Void)?
     var onCancel: (() -> Void)?
     var onKey: ((NSEvent) -> Bool)?
     var magnification: CGFloat = PickShortcut.magnificationDefault
@@ -479,7 +531,7 @@ final class LoupeOverlayView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onCommit?()
+        onCommit?(event.modifierFlags.contains(.shift))
     }
 
     override func rightMouseDown(with event: NSEvent) {
