@@ -345,6 +345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 radiusProvider: { [weak self] in
                     self?.settings.loupeRadius ?? PickShortcut.loupeRadiusDefault
                 },
+                showPixelGridProvider: { [weak self] in
+                    self?.settings.showPixelGrid ?? true
+                },
                 onMagnificationChange: { [weak self] value in
                     self?.settings.loupeMagnification = value
                 },

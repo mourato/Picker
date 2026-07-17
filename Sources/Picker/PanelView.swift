@@ -760,9 +760,21 @@ private struct SettingsPopover: View {
             )
             .controlSize(.small)
 
-            Text("Pixel grid appears from 8× zoom")
-                .font(TypeScale.caption)
-                .foregroundStyle(Ink.faint)
+            Toggle(isOn: $settings.showPixelGrid) {
+                Text("Pixel grid")
+                    .font(TypeScale.button)
+                    .foregroundStyle(Ink.primary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.top, Space.xs)
+
+            Text(
+                settings.showPixelGrid
+                    ? "Appears from 8× zoom" : "Hidden at all zoom levels"
+            )
+            .font(TypeScale.caption)
+            .foregroundStyle(Ink.faint)
         }
     }
 

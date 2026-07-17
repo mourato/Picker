@@ -318,6 +318,11 @@ final class AppSettings: ObservableObject {
         didSet { persist() }
     }
 
+    /// When true, the loupe draws pixel boundary lines from 8× zoom upward.
+    @Published var showPixelGrid: Bool {
+        didSet { persist() }
+    }
+
     /// Fired after any persisted mutation so the host can re-register the hotkey.
     var onChange: (() -> Void)?
 
@@ -328,6 +333,7 @@ final class AppSettings: ObservableObject {
     private let magnificationKey = "picker.loupeMagnification.v1"
     private let loupeRadiusKey = "picker.loupeRadius.v1"
     private let freezeScopeKey = "picker.freezeScope.v1"
+    private let showPixelGridKey = "picker.showPixelGrid.v1"
     private let shortcutKeyCodeKey = "picker.pickShortcut.keyCode.v1"
     private let shortcutModifiersKey = "picker.pickShortcut.modifiers.v1"
 
@@ -353,6 +359,12 @@ final class AppSettings: ObservableObject {
             freezeScope = scope
         } else {
             freezeScope = .allDisplays
+        }
+
+        if UserDefaults.standard.object(forKey: showPixelGridKey) != nil {
+            showPixelGrid = UserDefaults.standard.bool(forKey: showPixelGridKey)
+        } else {
+            showPixelGrid = true
         }
 
         if UserDefaults.standard.object(forKey: shortcutKeyCodeKey) != nil {
@@ -396,6 +408,7 @@ final class AppSettings: ObservableObject {
             UserDefaults.standard.set(loupeMagnification, forKey: magnificationKey)
             UserDefaults.standard.set(loupeRadius, forKey: loupeRadiusKey)
             UserDefaults.standard.set(freezeScope.rawValue, forKey: freezeScopeKey)
+            UserDefaults.standard.set(showPixelGrid, forKey: showPixelGridKey)
             UserDefaults.standard.set(Int(pickShortcut.keyCode), forKey: shortcutKeyCodeKey)
             UserDefaults.standard.set(
                 Int(pickShortcut.carbonModifiers), forKey: shortcutModifiersKey)

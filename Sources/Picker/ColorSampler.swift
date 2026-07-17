@@ -28,6 +28,7 @@ final class ColorSampler {
     private var formatProvider: () -> ColorDisplayFormat = { .hex }
     private var magnificationProvider: () -> Double = { PickShortcut.magnificationDefault }
     private var radiusProvider: () -> Double = { PickShortcut.loupeRadiusDefault }
+    private var showPixelGridProvider: () -> Bool = { true }
     private var onMagnificationChange: ((Double) -> Void)?
     private var onRadiusChange: ((Double) -> Void)?
     private var onPresented: (() -> Void)?
@@ -35,6 +36,7 @@ final class ColorSampler {
     private var currentColor: PickedColor?
     private var magnification: Double = PickShortcut.magnificationDefault
     private var loupeRadius: Double = PickShortcut.loupeRadiusDefault
+    private var showPixelGrid = true
 
     var isSampling: Bool { !overlays.isEmpty }
 
@@ -58,6 +60,7 @@ final class ColorSampler {
         formatProvider: @escaping () -> ColorDisplayFormat,
         magnificationProvider: @escaping () -> Double,
         radiusProvider: @escaping () -> Double,
+        showPixelGridProvider: @escaping () -> Bool,
         onMagnificationChange: @escaping (Double) -> Void,
         onRadiusChange: @escaping (Double) -> Void,
         onPresented: @escaping () -> Void,
@@ -73,12 +76,14 @@ final class ColorSampler {
             self.formatProvider = formatProvider
             self.magnificationProvider = magnificationProvider
             self.radiusProvider = radiusProvider
+            self.showPixelGridProvider = showPixelGridProvider
             self.onMagnificationChange = onMagnificationChange
             self.onRadiusChange = onRadiusChange
             self.onPresented = onPresented
             self.onWillDismiss = onWillDismiss
             self.magnification = AppSettings.clampMagnification(magnificationProvider())
             self.loupeRadius = AppSettings.clampLoupeRadius(radiusProvider())
+            self.showPixelGrid = showPixelGridProvider()
             self.onResult = onResult
             self.frames = captured
             present()
@@ -209,6 +214,7 @@ final class ColorSampler {
             v.screenFrame = frame.screenFrame
             v.magnification = magnification
             v.loupeRadius = loupeRadius
+            v.showPixelGrid = showPixelGrid
             v.onMove = { [weak self] global in self?.refresh(atAppKit: global) }
             v.onCommit = { [weak self] in self?.commit() }
             v.onCancel = { [weak self] in self?.cancel() }
@@ -265,6 +271,7 @@ final class ColorSampler {
         formatProvider = { .hex }
         magnificationProvider = { PickShortcut.magnificationDefault }
         radiusProvider = { PickShortcut.loupeRadiusDefault }
+        showPixelGridProvider = { true }
         onMagnificationChange = nil
         onRadiusChange = nil
         onPresented = nil
@@ -427,6 +434,8 @@ final class LoupeOverlayView: NSView {
     var onKey: ((NSEvent) -> Bool)?
     var magnification: CGFloat = PickShortcut.magnificationDefault
     var loupeRadius: CGFloat = PickShortcut.loupeRadiusDefault
+    /// When false, skip the zoom-gated pixel boundary grid.
+    var showPixelGrid = true
 
     /// Odd count so the hovered pixel stays centered in the loupe.
     private let gridCount = 11
@@ -513,7 +522,7 @@ final class LoupeOverlayView: NSView {
 
         redrawMagnifiedContent(in: ctx, loupeRect: loupeRect, srcSide: srcSide)
 
-        if magnification >= PickShortcut.pixelGridMinMagnification {
+        if showPixelGrid, magnification >= PickShortcut.pixelGridMinMagnification {
             drawPixelGrid(in: ctx, loupeRect: loupeRect, srcSide: srcSide)
         }
 
