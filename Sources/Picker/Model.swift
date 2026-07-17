@@ -1,11 +1,13 @@
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 import SwiftUI
 
 // MARK: - Color format preference
 //
-// Shared enum for loupe/hero display and clipboard-on-pick. All four formats
-// still appear in the formats card; these prefs only pick the primary ones.
+// Shared enum for loupe/hero display and clipboard copy (palette + pick commit).
+// All four formats still appear in the formats card; these prefs only pick the
+// primary ones.
 
 enum ColorDisplayFormat: String, CaseIterable, Codable, Identifiable {
     case hex
@@ -289,7 +291,7 @@ final class AppSettings: ObservableObject {
         didSet { persist() }
     }
 
-    /// String written to the clipboard when a loupe pick commits.
+    /// String written to the clipboard from palette chips and when a loupe pick commits.
     @Published var clipboardFormat: ColorDisplayFormat {
         didSet { persist() }
     }
@@ -430,6 +432,34 @@ final class AppSettings: ObservableObject {
                 Int(pickShortcut.carbonModifiers), forKey: shortcutModifiersKey)
         }
         onChange?()
+    }
+}
+
+// MARK: - Launch at login
+//
+// Backed by `SMAppService.mainApp` — System Settings is the source of truth,
+// not UserDefaults. Requires a real `.app` bundle (as assembled by `build.sh`).
+
+enum LaunchAtLogin {
+    static var isEnabled: Bool {
+        let status = SMAppService.mainApp.status
+        return status == .enabled || status == .requiresApproval
+    }
+
+    static var needsApproval: Bool {
+        SMAppService.mainApp.status == .requiresApproval
+    }
+
+    static func setEnabled(_ enabled: Bool) throws {
+        if enabled {
+            try SMAppService.mainApp.register()
+        } else if SMAppService.mainApp.status != .notRegistered {
+            try SMAppService.mainApp.unregister()
+        }
+    }
+
+    static func openLoginItemsSettings() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 }
 

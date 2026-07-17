@@ -24,7 +24,7 @@ Do **not** treat plain `swift build` as sufficient acceptance — Info.plist and
 
 ## Signing Note
 
-`build.sh` prefers a Developer ID identity when available, otherwise ad-hoc. Accessibility grants follow the signing identity — stable signing avoids re-prompting every rebuild.
+`build.sh` prefers `Prisma Local Code Signing` (override with `PICKER_CODE_SIGN_IDENTITY`), otherwise ad-hoc. Accessibility grants follow the signing identity — stable signing avoids re-prompting every rebuild.
 
 ## Validation Scope
 

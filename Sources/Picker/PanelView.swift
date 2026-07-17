@@ -100,7 +100,7 @@ struct PanelView: View {
         EyedropperButton(isSampling: app.isSampling, action: onPick)
 
         if !store.colors.isEmpty {
-            SwatchStrip(store: store, format: settings.colorDisplayFormat) { copy($0) }
+            SwatchStrip(store: store, format: settings.clipboardFormat) { copy($0) }
                 .transition(.opacity)
         }
     }
@@ -654,6 +654,8 @@ private struct SettingsPopover: View {
 
     @State private var recordingShortcut = false
     @State private var keyMonitor: Any?
+    @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var launchAtLoginMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
@@ -662,15 +664,17 @@ private struct SettingsPopover: View {
                 caption: "Label on the loupe and hero card",
                 selection: $settings.colorDisplayFormat)
             formatPicker(
-                title: "Clipboard on pick",
-                caption: "Copied when you confirm a color",
+                title: "Clipboard",
+                caption: "Used by the palette and when you confirm a pick",
                 selection: $settings.clipboardFormat)
             zoomSection
             freezeScopeSection
             shortcutSection
+            launchAtLoginSection
         }
         .padding(Space.md)
         .frame(width: 260)
+        .onAppear { refreshLaunchAtLogin() }
         .onDisappear { stopRecording() }
     }
 
@@ -884,6 +888,62 @@ private struct SettingsPopover: View {
                 .font(TypeScale.caption)
                 .foregroundStyle(Ink.faint)
         }
+    }
+
+    private var launchAtLoginSection: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Toggle(isOn: launchAtLoginBinding) {
+                Text("Open at login")
+                    .font(TypeScale.button)
+                    .foregroundStyle(Ink.primary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            Text(launchAtLoginCaption)
+                .font(TypeScale.caption)
+                .foregroundStyle(Ink.faint)
+
+            if LaunchAtLogin.needsApproval {
+                Button("Open Login Items…") {
+                    LaunchAtLogin.openLoginItemsSettings()
+                }
+                .font(TypeScale.caption)
+                .buttonStyle(.plain)
+                .foregroundStyle(Ink.secondary)
+            }
+        }
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin },
+            set: { newValue in
+                do {
+                    try LaunchAtLogin.setEnabled(newValue)
+                    launchAtLoginMessage = nil
+                    if LaunchAtLogin.needsApproval {
+                        LaunchAtLogin.openLoginItemsSettings()
+                    }
+                } catch {
+                    launchAtLoginMessage =
+                        "Couldn't update Login Items. Try from Applications."
+                }
+                refreshLaunchAtLogin()
+            }
+        )
+    }
+
+    private var launchAtLoginCaption: String {
+        if let launchAtLoginMessage { return launchAtLoginMessage }
+        if LaunchAtLogin.needsApproval {
+            return "Allow Picker under Login Items in System Settings"
+        }
+        return "Starts Picker when you log in"
+    }
+
+    private func refreshLaunchAtLogin() {
+        launchAtLogin = LaunchAtLogin.isEnabled
     }
 
     private func startRecording() {

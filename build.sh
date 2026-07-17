@@ -61,13 +61,15 @@ PLIST
 # Sign with a STABLE identity when one is in the keychain. The Accessibility (TCC)
 # grant keys on the signing identity + bundle id — NOT the binary hash — so a stably
 # signed app stays authorized across rebuilds (ad-hoc resets the grant every build,
-# which is why "Grab Font" kept needing re-permitting). Falls back to ad-hoc.
-SIGN_ID="Developer ID Application: Julian Hahne (YU2HWLYNN7)"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
-    codesign --force --deep --sign "$SIGN_ID" "$APP_DIR" >/dev/null 2>&1 \
-        || codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+# which is why "Grab Font" kept needing re-permitting). Defaults to the same local
+# self-signed identity used by Vozinha; override with PICKER_CODE_SIGN_IDENTITY.
+SIGN_ID="${PICKER_CODE_SIGN_IDENTITY:-Prisma Local Code Signing}"
+if security find-identity -v -p codesigning 2>/dev/null | grep -Fq "$SIGN_ID"; then
+    echo "==> Signing with '${SIGN_ID}'"
+    codesign --force --deep --sign "$SIGN_ID" "$APP_DIR"
 else
-    codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+    echo "==> Missing identity '${SIGN_ID}'; falling back to ad-hoc (TCC resets each build)" >&2
+    codesign --force --deep --sign - "$APP_DIR"
 fi
 
 echo "==> Done: ${APP_DIR}"

@@ -23,7 +23,7 @@ If a tradeoff is required, choose **correctness and focus-preserving behavior** 
 - `swift format --in-place --configuration .swift-format --recursive Sources`
 - `swift format lint --configuration .swift-format --recursive Sources`
 
-Do **not** use plain `swift build` for day-to-day verification. `build.sh` also generates `Contents/Info.plist` (`LSUIElement = true` for menu-bar-only, `LSMinimumSystemVersion = 26.0`, Screen Recording + Apple Events usage strings) and **ad-hoc codesigns** (`codesign --force --deep --sign -`). The Info.plist and signing are required for Liquid Glass and Screen Recording permission to work.
+Do **not** use plain `swift build` for day-to-day verification. `build.sh` also generates `Contents/Info.plist` (`LSUIElement = true` for menu-bar-only, `LSMinimumSystemVersion = 26.0`, Screen Recording + Apple Events usage strings) and codesigns with `Prisma Local Code Signing` when available (otherwise ad-hoc). The Info.plist and signing are required for Liquid Glass and Screen Recording permission to work.
 
 `--demo` seeds 10 swatches, disables persistence, and keeps the panel open without dismiss-on-outside-click — use it for fast UI iteration without touching the real palette.
 
@@ -43,7 +43,7 @@ Do **not** use plain `swift build` for day-to-day verification. `build.sh` also 
 
 ## Persistence
 
-Stores persist to `UserDefaults`: colors under `picker.pickedColors.v1` (capped at 60; consecutive duplicate samples from normal `add` update rather than append — multi-pick loupe sessions use `appendAlways` so each click is kept), fonts under `picker.pickedFonts.v1` (re-grabbing a family moves it to the front), display format under `picker.colorDisplayFormat.v1`, clipboard-on-pick format under `picker.clipboardFormat.v1`, loupe zoom under `picker.loupeMagnification.v1`, freeze scope under `picker.freezeScope.v1` (`allDisplays` / `cursorDisplay`), pixel grid under `picker.showPixelGrid.v1`, pick shortcut under `picker.pickShortcut.keyCode.v1` / `.modifiers.v1`. The `--demo` path sets `persistenceEnabled = false` on stores/settings so seeded data never touches the user's real saved items.
+Stores persist to `UserDefaults`: colors under `picker.pickedColors.v1` (capped at 60; consecutive duplicate samples from normal `add` update rather than append — multi-pick loupe sessions use `appendAlways` so each click is kept), fonts under `picker.pickedFonts.v1` (re-grabbing a family moves it to the front), display format under `picker.colorDisplayFormat.v1`, clipboard format under `picker.clipboardFormat.v1` (palette chip copy + loupe commit; independent of loupe/hero `colorDisplayFormat`), loupe zoom under `picker.loupeMagnification.v1`, freeze scope under `picker.freezeScope.v1` (`allDisplays` / `cursorDisplay`), pixel grid under `picker.showPixelGrid.v1`, pick shortcut under `picker.pickShortcut.keyCode.v1` / `.modifiers.v1`. Open-at-login is owned by `SMAppService.mainApp` (System Settings), not UserDefaults. The `--demo` path sets `persistenceEnabled = false` on stores/settings so seeded data never touches the user's real saved items.
 
 Deep ownership of caps, schema keys, and demo isolation → skill `data-persistence`.
 

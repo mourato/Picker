@@ -41,7 +41,8 @@ A sliding pill switches between the two; nothing else moves.
 - **Global pick shortcut** — default **⌃⌥C**; change it under the gear. Works even when another app is focused.
 - **Grab any font, anywhere** — a click-through overlay reads the text *under* your cursor through the accessibility tree, so it works on web pages (Safari/WebKit **and Chrome/Chromium**), native apps, and even items in an already-open dropdown — highlighting the actual text run, never a surrounding box. Chromium hides the font family from accessibility, so for those browsers Picker reads it straight from the page's computed style — and the hover label resolves instantly.
 - **Liquid Glass** — a real macOS 26 glass panel, not a mockup.
-- **HEX · RGB · HSL · HSB** — every color format at once; pick loupe/hero and clipboard-on-pick formats independently via the gear; click a value to copy it and the icon flips to a checkmark.
+- **HEX · RGB · HSL · HSB** — every color format at once; pick loupe/hero and clipboard formats independently via the gear (clipboard format is used by palette chips and when a pick commits); click a value to copy it and the icon flips to a checkmark.
+- **Open at login** — optional Login Item under the gear so Picker starts with your session.
 - **Real-typeface specimen** — every grabbed font renders in its *actual* face. If you don't have it installed, Picker fetches and registers it on the fly from the open-font catalog (Google Fonts, then Fontsource), so the preview is the real thing — even for variable fonts that hide behind an odd internal name. Faces you can't legally download fall back to a system preview.
 - **Find any font** — the **Find** link deep-links to a font's Google Fonts page when it's free, and otherwise opens a web search for the family name in Safari — so it locates commercial, foundry, and self-hosted fonts too, not just Google's catalog.
 - **Saved palette & font list** — running strips of everything you've grabbed. Click to copy, hover to delete, scroll the row with your mouse wheel.
@@ -73,7 +74,7 @@ An eyedropper appears in your menu bar:
 
 To make it Spotlight-launchable, drag `build/Picker.app` into `/Applications`.
 
-> **Signing:** `build.sh` signs with a Developer ID identity when one is in your keychain (falling back to ad-hoc otherwise). A stable identity matters because **Accessibility** and **Screen Recording** grants are keyed to the app's signing identity — sign stably and you grant once, even across rebuilds; ad-hoc resets them every build.
+> **Signing:** `build.sh` signs with `Prisma Local Code Signing` when that identity is in your keychain (falling back to ad-hoc otherwise). Override with `PICKER_CODE_SIGN_IDENTITY`. A stable identity matters because **Accessibility** and **Screen Recording** grants are keyed to the app's signing identity — sign stably and you grant once, even across rebuilds; ad-hoc resets them every build.
 
 ## How it's built
 
@@ -86,7 +87,7 @@ Picker is a compact SwiftUI + AppKit app with no third-party code:
 - **Chromium support** — Chromium's accessibility hit test is unreliable (it returns a giant scroll container, not the run) and never reports the font family, so for Chromium browsers Picker finds the text run by **geometry** — the deepest `AXStaticText` whose frame contains the pointer, searched from the app root — and reads the actual family/size/weight from the page's `getComputedStyle` via an in-process `NSAppleScript` "execute javascript" call (~10ms, warmed at launch so the hover label is instant). It also wakes Chromium's lazily-built AX tree when the picker starts.
 - **Real faces & Find** — when a grabbed font isn't installed, `FontLoader` pulls it from the Google Fonts **css2** catalog (or Fontsource on jsDelivr) and registers it with `CTFontManagerRegisterFontsForURL`, which loads TTF/WOFF/WOFF2 by content. Variable fonts that register under a named-instance family are remapped via the font's own descriptor so the specimen still renders. **Find** deep-links Google-hosted fonts and web-searches everything else.
 - **Contrast** — ink chosen by YIQ perceived brightness (`0.299·R + 0.587·G + 0.114·B`), which keeps white text on saturated and dark colors.
-- **Persistence** — the palette, font list, loupe/hero format, clipboard-on-pick format, loupe zoom, and pick shortcut are stored in `UserDefaults`.
+- **Persistence** — the palette, font list, loupe/hero format, clipboard format, loupe zoom, and pick shortcut are stored in `UserDefaults`. Open-at-login is a system Login Item (`SMAppService`).
 
 ```
 Sources/Picker/
