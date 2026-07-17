@@ -4,28 +4,39 @@ import ScreenCaptureKit
 
 // MARK: - Color sampling
 //
-// Custom freeze loupe (replaces NSColorSampler). Captures every display once,
-// paints the frozen frames into a full-screen overlay that owns mouse + keyboard,
-// and samples pixels from those bitmaps while the cursor moves — so the label can
-// show HEX / RGB / HSL / HSB from AppSettings. Requires Screen Recording.
+// Custom freeze loupe (replaces NSColorSampler). Captures displays once (all, or
+// only the one under the cursor), paints each frozen frame into a per-NSScreen
+// overlay that owns mouse + keyboard, and samples pixels from those bitmaps
+// while the cursor moves — so the label can show HEX / RGB / HSL / HSB from
+// AppSettings. Requires Screen Recording.
 
 @MainActor
 final class ColorSampler {
 
     enum Start { case began, needsPermission }
 
-    private var window: NSWindow?
-    private var view: LoupeOverlayView?
+    private struct Overlay {
+        let window: NSWindow
+        let view: LoupeOverlayView
+        let screenFrame: CGRect
+    }
+
+    private var overlays: [Overlay] = []
     private var keyMonitor: Any?
     private var onResult: ((PickedColor?) -> Void)?
     private var frames: [FrozenFrame] = []
     private var formatProvider: () -> ColorDisplayFormat = { .hex }
     private var magnificationProvider: () -> Double = { PickShortcut.magnificationDefault }
+    private var radiusProvider: () -> Double = { PickShortcut.loupeRadiusDefault }
     private var onMagnificationChange: ((Double) -> Void)?
+    private var onRadiusChange: ((Double) -> Void)?
+    private var onPresented: (() -> Void)?
+    private var onWillDismiss: (() -> Void)?
     private var currentColor: PickedColor?
     private var magnification: Double = PickShortcut.magnificationDefault
+    private var loupeRadius: Double = PickShortcut.loupeRadiusDefault
 
-    var isSampling: Bool { window != nil }
+    var isSampling: Bool { !overlays.isEmpty }
 
     struct FrozenFrame {
         /// Screen frame in AppKit global coordinates (bottom-left origin).
@@ -37,22 +48,37 @@ final class ColorSampler {
 
     /// Begins a freeze-loupe session. Returns `.needsPermission` when Screen
     /// Recording hasn't been granted yet (and triggers the system prompt).
+    ///
+    /// - Parameters:
+    ///   - onPresented: Called once the overlay is on screen (hide the panel here).
+    ///   - onWillDismiss: Called just before the overlay is removed (reveal the panel
+    ///     under it first to avoid a desktop flash).
     func start(
+        freezeScope: FreezeScope,
         formatProvider: @escaping () -> ColorDisplayFormat,
         magnificationProvider: @escaping () -> Double,
+        radiusProvider: @escaping () -> Double,
         onMagnificationChange: @escaping (Double) -> Void,
+        onRadiusChange: @escaping (Double) -> Void,
+        onPresented: @escaping () -> Void,
+        onWillDismiss: @escaping () -> Void,
         onResult: @escaping (PickedColor?) -> Void
     ) async -> Start {
         guard ensureScreenAccess() else { return .needsPermission }
         guard !isSampling else { return .began }
 
         do {
-            let captured = try await Self.captureAllDisplays()
+            let captured = try await Self.captureDisplays(scope: freezeScope)
             guard !captured.isEmpty else { return .needsPermission }
             self.formatProvider = formatProvider
             self.magnificationProvider = magnificationProvider
+            self.radiusProvider = radiusProvider
             self.onMagnificationChange = onMagnificationChange
+            self.onRadiusChange = onRadiusChange
+            self.onPresented = onPresented
+            self.onWillDismiss = onWillDismiss
             self.magnification = AppSettings.clampMagnification(magnificationProvider())
+            self.loupeRadius = AppSettings.clampLoupeRadius(radiusProvider())
             self.onResult = onResult
             self.frames = captured
             present()
@@ -75,13 +101,39 @@ final class ColorSampler {
 
     // MARK: Capture
 
-    private static func captureAllDisplays() async throws -> [FrozenFrame] {
+    private static func captureDisplays(scope: FreezeScope) async throws -> [FrozenFrame] {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
-        var frames: [FrozenFrame] = []
+        // Keep our panel out of the freeze so we can capture while it's still
+        // visible — avoids a desktop flash between hide and overlay.
+        let excluded = content.applications.filter {
+            $0.bundleIdentifier == Bundle.main.bundleIdentifier
+        }
 
-        for display in content.displays {
-            let filter = SCContentFilter(display: display, excludingWindows: [])
+        let displays: [SCDisplay]
+        switch scope {
+        case .allDisplays:
+            displays = content.displays
+        case .cursorDisplay:
+            let point = NSEvent.mouseLocation
+            let screen =
+                NSScreen.screens.first { $0.frame.contains(point) }
+                ?? NSScreen.main
+            let targetID = displayID(for: screen)
+            if let targetID, let match = content.displays.first(where: { $0.displayID == targetID })
+            {
+                displays = [match]
+            } else if let first = content.displays.first {
+                displays = [first]
+            } else {
+                displays = []
+            }
+        }
+
+        var frames: [FrozenFrame] = []
+        for display in displays {
+            let filter = SCContentFilter(
+                display: display, excludingApplications: excluded, exceptingWindows: [])
             let scale = scaleForDisplay(display)
             let config = SCStreamConfiguration()
             config.width = Int(CGFloat(display.width) * scale)
@@ -98,12 +150,17 @@ final class ColorSampler {
         return frames
     }
 
+    private static func displayID(for screen: NSScreen?) -> CGDirectDisplayID? {
+        guard let screen,
+            let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+                as? NSNumber
+        else { return nil }
+        return CGDirectDisplayID(num.uint32Value)
+    }
+
     private static func scaleForDisplay(_ display: SCDisplay) -> CGFloat {
         for screen in NSScreen.screens {
-            if let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
-                as? NSNumber,
-                CGDirectDisplayID(num.uint32Value) == display.displayID
-            {
+            if displayID(for: screen) == display.displayID {
                 return screen.backingScaleFactor
             }
         }
@@ -113,10 +170,7 @@ final class ColorSampler {
     /// AppKit global frame for an SCDisplay (bottom-left origin).
     private static func screenFrame(for display: SCDisplay) -> CGRect {
         for screen in NSScreen.screens {
-            if let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
-                as? NSNumber,
-                CGDirectDisplayID(num.uint32Value) == display.displayID
-            {
+            if displayID(for: screen) == display.displayID {
                 return screen.frame
             }
         }
@@ -134,25 +188,36 @@ final class ColorSampler {
     // MARK: Overlay lifecycle
 
     private func present() {
-        let frame = Self.unionFrame()
-        let win = NSWindow(
-            contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
-        win.isOpaque = true
-        win.backgroundColor = .black
-        win.hasShadow = false
-        win.level = .screenSaver
-        win.ignoresMouseEvents = false
-        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        win.acceptsMouseMovedEvents = true
+        let cursor = NSEvent.mouseLocation
+        var built: [Overlay] = []
 
-        let v = LoupeOverlayView(frame: CGRect(origin: .zero, size: frame.size))
-        v.magnification = magnification
-        v.onMove = { [weak self] global in self?.refresh(atAppKit: global) }
-        v.onCommit = { [weak self] in self?.commit() }
-        v.onCancel = { [weak self] in self?.cancel() }
-        v.onKey = { [weak self] event in self?.handleKey(event) ?? false }
-        win.contentView = v
-        v.setAccessibilityElement(false)
+        for frame in frames {
+            let win = NSWindow(
+                contentRect: frame.screenFrame,
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false)
+            win.isOpaque = true
+            win.backgroundColor = .black
+            win.hasShadow = false
+            win.level = .screenSaver
+            win.ignoresMouseEvents = false
+            win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            win.acceptsMouseMovedEvents = true
+
+            let v = LoupeOverlayView(frame: CGRect(origin: .zero, size: frame.screenFrame.size))
+            v.screenFrame = frame.screenFrame
+            v.magnification = magnification
+            v.loupeRadius = loupeRadius
+            v.onMove = { [weak self] global in self?.refresh(atAppKit: global) }
+            v.onCommit = { [weak self] in self?.commit() }
+            v.onCancel = { [weak self] in self?.cancel() }
+            v.onKey = { [weak self] event in self?.handleKey(event) ?? false }
+            win.contentView = v
+            v.setAccessibilityElement(false)
+
+            built.append(Overlay(window: win, view: v, screenFrame: frame.screenFrame))
+        }
 
         // Freeze overlay must become the key app/window so Esc / − / = are delivered
         // to us (and can be consumed). Global key monitors cannot swallow events, and
@@ -160,31 +225,50 @@ final class ColorSampler {
         // keystrokes would land in whatever text field was focused before. The screen
         // is already frozen, so briefly activating is safe.
         NSApp.activate(ignoringOtherApps: true)
-        win.makeKeyAndOrderFront(nil)
-        win.makeFirstResponder(v)
 
-        window = win
-        view = v
+        let keyOverlay =
+            built.first { $0.screenFrame.contains(cursor) }
+            ?? built.first
+        for overlay in built {
+            if overlay.window === keyOverlay?.window {
+                overlay.window.makeKeyAndOrderFront(nil)
+                overlay.window.makeFirstResponder(overlay.view)
+            } else {
+                overlay.window.orderFront(nil)
+            }
+        }
+
+        overlays = built
         installKeyMonitor()
         NSCursor.crosshair.set()
 
-        refresh(atAppKit: NSEvent.mouseLocation)
+        refresh(atAppKit: cursor)
+        onPresented?()
     }
 
     private func finish(_ color: PickedColor?) {
+        // Reveal the panel under the loupe first so tearing down the overlay does
+        // not flash the live desktop.
+        onWillDismiss?()
+
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
         NSCursor.arrow.set()
-        window?.orderOut(nil)
-        window = nil
-        view = nil
+        for overlay in overlays {
+            overlay.window.orderOut(nil)
+        }
+        overlays = []
         frames = []
         currentColor = nil
         formatProvider = { .hex }
         magnificationProvider = { PickShortcut.magnificationDefault }
+        radiusProvider = { PickShortcut.loupeRadiusDefault }
         onMagnificationChange = nil
+        onRadiusChange = nil
+        onPresented = nil
+        onWillDismiss = nil
         let callback = onResult
         onResult = nil
         callback?(color)
@@ -202,15 +286,24 @@ final class ColorSampler {
     /// Returns true when the key mapped to a loupe action.
     @discardableResult
     private func handleKey(_ event: NSEvent) -> Bool {
+        let command = event.modifierFlags.contains(.command)
         switch Int(event.keyCode) {
         case 53:  // Esc
             cancel()
             return true
         case 27, 78:  // "-" / keypad minus
-            nudgeMagnification(-PickShortcut.magnificationStep)
+            if command {
+                nudgeLoupeRadius(-PickShortcut.loupeRadiusStep)
+            } else {
+                nudgeMagnification(-PickShortcut.magnificationStep)
+            }
             return true
         case 24, 69:  // "=" / keypad plus (`+` is Shift+=, same keyCode 24)
-            nudgeMagnification(PickShortcut.magnificationStep)
+            if command {
+                nudgeLoupeRadius(PickShortcut.loupeRadiusStep)
+            } else {
+                nudgeMagnification(PickShortcut.magnificationStep)
+            }
             return true
         default:
             return false
@@ -222,24 +315,48 @@ final class ColorSampler {
         guard next != magnification else { return }
         magnification = next
         onMagnificationChange?(next)
-        view?.magnification = next
-        view?.needsDisplay = true
+        for overlay in overlays {
+            overlay.view.magnification = next
+            overlay.view.needsDisplay = true
+        }
+    }
+
+    private func nudgeLoupeRadius(_ delta: Double) {
+        let next = AppSettings.clampLoupeRadius(loupeRadius + delta)
+        guard next != loupeRadius else { return }
+        loupeRadius = next
+        onRadiusChange?(next)
+        for overlay in overlays {
+            overlay.view.loupeRadius = next
+            overlay.view.needsDisplay = true
+        }
     }
 
     // MARK: Sample / commit
 
     private func refresh(atAppKit point: CGPoint) {
+        // Keep key window on the screen under the cursor so Esc / − / = stay delivered.
+        if let target = overlays.first(where: { $0.screenFrame.contains(point) }),
+            target.window !== NSApp.keyWindow
+        {
+            target.window.makeKey()
+            target.window.makeFirstResponder(target.view)
+        }
+
         guard let color = Self.color(at: point, in: frames) else {
             currentColor = nil
-            view?.update(cursor: point, color: nil, label: nil, frames: frames)
+            for overlay in overlays {
+                overlay.view.update(
+                    cursor: point, color: nil, label: nil, frames: frames)
+            }
             return
         }
         currentColor = color
-        view?.update(
-            cursor: point,
-            color: color,
-            label: color.string(for: formatProvider()),
-            frames: frames)
+        let label = color.string(for: formatProvider())
+        for overlay in overlays {
+            overlay.view.update(
+                cursor: point, color: color, label: label, frames: frames)
+        }
     }
 
     private func commit() {
@@ -250,7 +367,6 @@ final class ColorSampler {
     static func color(at point: CGPoint, in frames: [FrozenFrame]) -> PickedColor? {
         guard
             let frame = frames.first(where: { $0.screenFrame.contains(point) })
-                ?? frames.first
         else { return nil }
 
         let localX = (point.x - frame.screenFrame.minX) * frame.scale
@@ -290,10 +406,6 @@ final class ColorSampler {
         }
         return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
     }
-
-    private static func unionFrame() -> CGRect {
-        NSScreen.screens.reduce(CGRect.zero) { $0.union($1.frame) }
-    }
 }
 
 // MARK: - Overlay view
@@ -306,13 +418,17 @@ final class LoupeOverlayView: NSView {
     private var frames: [ColorSampler.FrozenFrame] = []
     private var tracking: NSTrackingArea?
 
+    /// AppKit global frame of the screen this view covers.
+    var screenFrame: CGRect = .zero
+
     var onMove: ((CGPoint) -> Void)?
     var onCommit: (() -> Void)?
     var onCancel: (() -> Void)?
     var onKey: ((NSEvent) -> Bool)?
     var magnification: CGFloat = PickShortcut.magnificationDefault
+    var loupeRadius: CGFloat = PickShortcut.loupeRadiusDefault
 
-    private let loupeRadius: CGFloat = 72
+    /// Odd count so the hovered pixel stays centered in the loupe.
     private let gridCount = 11
 
     override var isFlipped: Bool { false }
@@ -371,18 +487,20 @@ final class LoupeOverlayView: NSView {
         NSColor.black.setFill()
         dirtyRect.fill()
 
-        guard let win = window else { return }
         // NSImage.draw respects AppKit orientation — raw CGContext.draw + a manual
         // Y-flip was mirroring the freeze frame on ScreenCaptureKit bitmaps.
-        for frame in frames {
-            let local = convert(win.convertFromScreen(frame.screenFrame), from: nil)
+        for frame in frames where frame.screenFrame == screenFrame {
+            let local = CGRect(origin: .zero, size: bounds.size)
             let ns = NSImage(cgImage: frame.image, size: local.size)
             ns.draw(
                 in: local, from: .zero, operation: .copy, fraction: 1.0,
                 respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
         }
 
-        let localCursor = convert(win.convertPoint(fromScreen: cursorPoint), from: nil)
+        guard screenFrame.contains(cursorPoint) else { return }
+        let localCursor = CGPoint(
+            x: cursorPoint.x - screenFrame.minX,
+            y: cursorPoint.y - screenFrame.minY)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         drawLoupe(in: ctx, at: localCursor)
         drawLabel(at: localCursor)
@@ -391,8 +509,13 @@ final class LoupeOverlayView: NSView {
     private func drawLoupe(in ctx: CGContext, at center: CGPoint) {
         let r = loupeRadius
         let loupeRect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
+        let srcSide = sourceSide()
 
-        redrawMagnifiedContent(in: ctx, loupeRect: loupeRect)
+        redrawMagnifiedContent(in: ctx, loupeRect: loupeRect, srcSide: srcSide)
+
+        if magnification >= PickShortcut.pixelGridMinMagnification {
+            drawPixelGrid(in: ctx, loupeRect: loupeRect, srcSide: srcSide)
+        }
 
         ctx.saveGState()
         ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
@@ -402,7 +525,7 @@ final class LoupeOverlayView: NSView {
         ctx.setLineWidth(1)
         ctx.strokeEllipse(in: loupeRect)
 
-        let cell = (r * 2) / CGFloat(gridCount)
+        let cell = loupeRect.width / srcSide
         let cross = cell
         ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.85).cgColor)
         ctx.setLineWidth(1)
@@ -434,16 +557,18 @@ final class LoupeOverlayView: NSView {
         }
     }
 
-    /// Magnified pixel grid inside the loupe circle. Source window shrinks as
+    /// How many source pixels are packed into the loupe diameter at the current zoom.
+    private func sourceSide() -> CGFloat {
+        max(CGFloat(gridCount) * (12 / max(magnification, 1)), 3)
+    }
+
+    /// Magnified pixel patch inside the loupe circle. Source window shrinks as
     /// magnification rises so −/= visibly change zoom.
-    private func redrawMagnifiedContent(in ctx: CGContext, loupeRect: CGRect) {
+    private func redrawMagnifiedContent(in ctx: CGContext, loupeRect: CGRect, srcSide: CGFloat) {
         guard
             let frame = frames.first(where: { $0.screenFrame.contains(cursorPoint) })
-                ?? frames.first
         else { return }
 
-        // Baseline 12× matches the historical default; scale source window inversely.
-        let srcSide = max(CGFloat(gridCount) * (12 / max(magnification, 1)), 3)
         let half = srcSide / 2
         let srcX = (cursorPoint.x - frame.screenFrame.minX) * frame.scale - half
         let srcY = (frame.screenFrame.maxY - cursorPoint.y) * frame.scale - half
@@ -459,6 +584,27 @@ final class LoupeOverlayView: NSView {
         ns.draw(
             in: loupeRect, from: .zero, operation: .copy, fraction: 1.0,
             respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
+        ctx.restoreGState()
+    }
+
+    /// Hairline pixel boundaries — only from 8× up, when cells are large enough to read.
+    private func drawPixelGrid(in ctx: CGContext, loupeRect: CGRect, srcSide: CGFloat) {
+        let count = max(Int(srcSide.rounded()), 2)
+        let step = loupeRect.width / CGFloat(count)
+
+        ctx.saveGState()
+        ctx.addEllipse(in: loupeRect)
+        ctx.clip()
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.22).cgColor)
+        ctx.setLineWidth(1)
+        for i in 1..<count {
+            let offset = CGFloat(i) * step
+            ctx.move(to: CGPoint(x: loupeRect.minX + offset, y: loupeRect.minY))
+            ctx.addLine(to: CGPoint(x: loupeRect.minX + offset, y: loupeRect.maxY))
+            ctx.move(to: CGPoint(x: loupeRect.minX, y: loupeRect.minY + offset))
+            ctx.addLine(to: CGPoint(x: loupeRect.maxX, y: loupeRect.minY + offset))
+        }
+        ctx.strokePath()
         ctx.restoreGState()
     }
 

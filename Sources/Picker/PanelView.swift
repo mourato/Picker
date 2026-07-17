@@ -659,10 +659,11 @@ private struct SettingsPopover: View {
         VStack(alignment: .leading, spacing: Space.lg) {
             formatSection
             zoomSection
+            freezeScopeSection
             shortcutSection
         }
         .padding(Space.md)
-        .frame(width: 248)
+        .frame(width: 260)
         .onDisappear { stopRecording() }
     }
 
@@ -732,9 +733,86 @@ private struct SettingsPopover: View {
             )
             .controlSize(.small)
 
-            Text("During capture: − decreases, = increases")
+            Text("During capture: − / = zoom · ⌘− / ⌘= size")
                 .font(TypeScale.caption)
                 .foregroundStyle(Ink.faint)
+
+            HStack {
+                Text("Loupe size")
+                    .font(TypeScale.sectionTitle)
+                    .foregroundStyle(Ink.tertiary)
+                    .tracking(0.6)
+                Spacer()
+                Text("\(Int(settings.loupeRadius))pt")
+                    .font(TypeScale.valueStrong)
+                    .foregroundStyle(Ink.primary)
+                    .monospacedDigit()
+            }
+            .padding(.top, Space.xs)
+
+            Slider(
+                value: Binding(
+                    get: { settings.loupeRadius },
+                    set: { settings.loupeRadius = AppSettings.clampLoupeRadius($0) }
+                ),
+                in: PickShortcut.loupeRadiusMin...PickShortcut.loupeRadiusMax,
+                step: PickShortcut.loupeRadiusStep
+            )
+            .controlSize(.small)
+
+            Text("Pixel grid appears from 8× zoom")
+                .font(TypeScale.caption)
+                .foregroundStyle(Ink.faint)
+        }
+    }
+
+    private var freezeScopeSection: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text("Freeze scope")
+                .font(TypeScale.sectionTitle)
+                .foregroundStyle(Ink.tertiary)
+                .tracking(0.6)
+
+            VStack(spacing: Space.xs) {
+                ForEach(FreezeScope.allCases) { scope in
+                    Button {
+                        settings.freezeScope = scope
+                    } label: {
+                        HStack(spacing: Space.sm) {
+                            Image(
+                                systemName: settings.freezeScope == scope
+                                    ? "checkmark.circle.fill" : "circle"
+                            )
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(
+                                settings.freezeScope == scope
+                                    ? Ink.primary : Ink.tertiary)
+                            Text(scope.label)
+                                .font(TypeScale.button)
+                                .foregroundStyle(Ink.primary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: Radius.chip - 2, style: .continuous)
+                                .fill(
+                                    Color.primary.opacity(
+                                        settings.freezeScope == scope ? 0.06 : 0))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Text(
+                settings.freezeScope == .allDisplays
+                    ? "Freezes every connected display"
+                    : "Freezes only the display under the pointer"
+            )
+            .font(TypeScale.caption)
+            .foregroundStyle(Ink.faint)
         }
     }
 

@@ -215,32 +215,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showPanel() {
+        showPanel(animated: true)
+    }
+
+    private func showPanel(animated: Bool) {
         layoutPanel()
         positionPanel()
-        panel.alphaValue = 0
-        panel.makeKeyAndOrderFront(nil)
-        panel.orderFrontRegardless()
-        panel.invalidateShadow()
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.16
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
+        if animated {
+            panel.alphaValue = 0
+            panel.makeKeyAndOrderFront(nil)
+            panel.orderFrontRegardless()
+            panel.invalidateShadow()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.16
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
+        } else {
+            panel.alphaValue = 1
+            // Stay under the loupe (.screenSaver) — only reveal once the overlay goes away.
+            panel.orderFrontRegardless()
+            panel.invalidateShadow()
         }
-        if !isDemo { installGlobalMonitor() }  // keep panel open for visual testing
+        if !isDemo { installGlobalMonitor() }
     }
 
     private func hidePanel() {
+        hidePanel(animated: true)
+    }
+
+    private func hidePanel(animated: Bool) {
         removeGlobalMonitor()
-        NSAnimationContext.runAnimationGroup(
-            { ctx in
-                ctx.duration = 0.12
-                panel.animator().alphaValue = 0
-            },
-            completionHandler: { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.panel.orderOut(nil)
-                }
-            })
+        if animated {
+            NSAnimationContext.runAnimationGroup(
+                { ctx in
+                    ctx.duration = 0.12
+                    panel.animator().alphaValue = 0
+                },
+                completionHandler: { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.panel.orderOut(nil)
+                    }
+                })
+        } else {
+            panel.alphaValue = 0
+            panel.orderOut(nil)
+        }
     }
 
     private func layoutPanel() {
@@ -309,20 +329,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let wasVisible = panel.isVisible
-        if wasVisible { hidePanel() }
+        // Capture while the panel can stay up (excluded from the freeze), then
+        // present the overlay and only then tuck the panel away — no desktop flash.
         app.isSampling = true
 
         Task { @MainActor in
             let outcome = await colorSampler.start(
+                freezeScope: self.settings.freezeScope,
                 formatProvider: { [weak self] in
                     self?.settings.colorDisplayFormat ?? .hex
                 },
                 magnificationProvider: { [weak self] in
                     self?.settings.loupeMagnification ?? PickShortcut.magnificationDefault
                 },
+                radiusProvider: { [weak self] in
+                    self?.settings.loupeRadius ?? PickShortcut.loupeRadiusDefault
+                },
                 onMagnificationChange: { [weak self] value in
                     self?.settings.loupeMagnification = value
+                },
+                onRadiusChange: { [weak self] value in
+                    self?.settings.loupeRadius = value
+                },
+                onPresented: { [weak self] in
+                    self?.hidePanel(animated: false)
+                },
+                onWillDismiss: { [weak self] in
+                    self?.showPanel(animated: false)
                 }
             ) { [weak self] picked in
                 guard let self else { return }
@@ -331,12 +364,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.store.add(picked)
                     Haptics.confirm()
                 }
-                self.showPanel()
+                // Panel already revealed under the loupe in onWillDismiss.
             }
 
             if case .needsPermission = outcome {
                 app.isSampling = false
-                if wasVisible { showPanel() }
+                if !panel.isVisible { showPanel() }
                 app.say("Turn on Picker under Screen Recording, then click again", ok: false)
                 if let url = URL(
                     string:

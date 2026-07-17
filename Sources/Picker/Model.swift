@@ -25,6 +25,25 @@ enum ColorDisplayFormat: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+// MARK: - Freeze loupe display scope
+//
+// Whether Pick a Color freezes every monitor or only the one under the cursor.
+// All-displays uses one overlay window per NSScreen (multi-monitor safe).
+
+enum FreezeScope: String, CaseIterable, Codable, Identifiable {
+    case allDisplays
+    case cursorDisplay
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .allDisplays: "All displays"
+        case .cursorDisplay: "Display under cursor"
+        }
+    }
+}
+
 // MARK: - Color value semantics
 //
 // One sampled pixel, reduced to its sRGB truth. We store normalized components
@@ -134,6 +153,13 @@ struct PickShortcut: Equatable {
     static let magnificationMax: Double = 32
     static let magnificationStep: Double = 2
     static let magnificationDefault: Double = 12
+    /// Zoom at which the loupe draws a pixel boundary grid.
+    static let pixelGridMinMagnification: Double = 8
+
+    static let loupeRadiusMin: Double = 48
+    static let loupeRadiusMax: Double = 160
+    static let loupeRadiusStep: Double = 8
+    static let loupeRadiusDefault: Double = 72
 
     var displayString: String {
         var parts: [String] = []
@@ -273,7 +299,22 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var loupeRadius: Double {
+        didSet {
+            let clamped = Self.clampLoupeRadius(loupeRadius)
+            if clamped != loupeRadius {
+                loupeRadius = clamped
+                return
+            }
+            persist()
+        }
+    }
+
     @Published var pickShortcut: PickShortcut {
+        didSet { persist() }
+    }
+
+    @Published var freezeScope: FreezeScope {
         didSet { persist() }
     }
 
@@ -285,6 +326,8 @@ final class AppSettings: ObservableObject {
 
     private let formatKey = "picker.colorDisplayFormat.v1"
     private let magnificationKey = "picker.loupeMagnification.v1"
+    private let loupeRadiusKey = "picker.loupeRadius.v1"
+    private let freezeScopeKey = "picker.freezeScope.v1"
     private let shortcutKeyCodeKey = "picker.pickShortcut.keyCode.v1"
     private let shortcutModifiersKey = "picker.pickShortcut.modifiers.v1"
 
@@ -301,6 +344,17 @@ final class AppSettings: ObservableObject {
         loupeMagnification = Self.clampMagnification(
             storedMag ?? PickShortcut.magnificationDefault)
 
+        let storedRadius = UserDefaults.standard.object(forKey: loupeRadiusKey) as? Double
+        loupeRadius = Self.clampLoupeRadius(storedRadius ?? PickShortcut.loupeRadiusDefault)
+
+        if let raw = UserDefaults.standard.string(forKey: freezeScopeKey),
+            let scope = FreezeScope(rawValue: raw)
+        {
+            freezeScope = scope
+        } else {
+            freezeScope = .allDisplays
+        }
+
         if UserDefaults.standard.object(forKey: shortcutKeyCodeKey) != nil {
             let code = UInt32(UserDefaults.standard.integer(forKey: shortcutKeyCodeKey))
             let mods = UInt32(UserDefaults.standard.integer(forKey: shortcutModifiersKey))
@@ -315,6 +369,10 @@ final class AppSettings: ObservableObject {
         loupeMagnification = Self.clampMagnification(loupeMagnification + delta)
     }
 
+    func nudgeLoupeRadius(_ delta: Double) {
+        loupeRadius = Self.clampLoupeRadius(loupeRadius + delta)
+    }
+
     static func clampMagnification(_ value: Double) -> Double {
         let stepped =
             (value / PickShortcut.magnificationStep).rounded()
@@ -324,10 +382,20 @@ final class AppSettings: ObservableObject {
             max(PickShortcut.magnificationMin, stepped))
     }
 
+    static func clampLoupeRadius(_ value: Double) -> Double {
+        let stepped =
+            (value / PickShortcut.loupeRadiusStep).rounded() * PickShortcut.loupeRadiusStep
+        return min(
+            PickShortcut.loupeRadiusMax,
+            max(PickShortcut.loupeRadiusMin, stepped))
+    }
+
     private func persist() {
         if persistenceEnabled {
             UserDefaults.standard.set(colorDisplayFormat.rawValue, forKey: formatKey)
             UserDefaults.standard.set(loupeMagnification, forKey: magnificationKey)
+            UserDefaults.standard.set(loupeRadius, forKey: loupeRadiusKey)
+            UserDefaults.standard.set(freezeScope.rawValue, forKey: freezeScopeKey)
             UserDefaults.standard.set(Int(pickShortcut.keyCode), forKey: shortcutKeyCodeKey)
             UserDefaults.standard.set(
                 Int(pickShortcut.carbonModifiers), forKey: shortcutModifiersKey)
