@@ -1,32 +1,36 @@
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import SwiftUI
 
 // MARK: - Shared UI state
 
 @MainActor
 final class AppState: ObservableObject {
-    /// True while the NSColorSampler loupe is on screen. Drives the button's
-    /// live state and tells the dismiss monitor to leave the panel open.
+    /// True while the freeze loupe is on screen. Drives the button's live state
+    /// and tells the dismiss monitor to leave the panel open.
     @Published var isSampling = false
 
     /// True while the font-picking overlay is up.
     @Published var isPickingFont = false
 
-    /// Transient result of a "Grab Font" attempt, surfaced as a toast. The token
+    /// Transient toast payload (font grab, screen-recording gate, etc.). The token
     /// lets the same message fire twice in a row and still register as a change.
     struct Feedback: Equatable {
         var text: String
         var ok: Bool
         var token: Int
     }
-    @Published var fontFeedback: Feedback?
+    @Published var feedback: Feedback?
     private var feedbackCount = 0
 
-    func sayFont(_ text: String, ok: Bool) {
+    func say(_ text: String, ok: Bool) {
         feedbackCount += 1
-        fontFeedback = Feedback(text: text, ok: ok, token: feedbackCount)
+        feedback = Feedback(text: text, ok: ok, token: feedbackCount)
     }
+
+    /// Alias kept for call sites that are font-specific.
+    func sayFont(_ text: String, ok: Bool) { say(text, ok: ok) }
 }
 
 // MARK: - Floating panel
@@ -45,9 +49,12 @@ final class FloatingPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = ColorStore()
     let fonts = FontStore()
+    let settings = AppSettings()
     let app = AppState()
     let fontPicker = FontPicker()
+    let colorSampler = ColorSampler()
     let fontLoader = FontLoader()
+    private let pickHotKey = GlobalHotKey()
 
     private var statusItem: NSStatusItem!
     private var panel: FloatingPanel!
@@ -71,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPanel()
         store.onChange = { [weak self] in self?.resizeIfVisible() }
         fonts.onChange = { [weak self] in self?.resizeIfVisible() }
+        settings.onChange = { [weak self] in self?.registerPickHotKey() }
+        registerPickHotKey()
 
         // Dev affordance: `Picker --demo` seeds swatches and opens the panel so the
         // rendered UI can be inspected without clicking the menu-bar item.
@@ -78,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isDemo = true
             store.persistenceEnabled = false
             fonts.persistenceEnabled = false
+            settings.persistenceEnabled = false
             for (r, g, b) in [
                 (0.286, 0.314, 0.875), (0.953, 0.451, 0.396),
                 (0.290, 0.776, 0.612), (0.945, 0.769, 0.298),
@@ -156,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPanel() {
         let root = PanelView(
-            store: store, fonts: fonts, app: app, fontLoader: fontLoader,
+            store: store, fonts: fonts, settings: settings, app: app, fontLoader: fontLoader,
             onPick: { [weak self] in self?.beginSampling() },
             onGrabFont: { [weak self] in self?.pickFont() },
             onResize: { [weak self] in self?.resizeIfVisible() })
@@ -272,15 +282,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Sampling
 
+    private func registerPickHotKey() {
+        pickHotKey.register(shortcut: settings.pickShortcut) { [weak self] in
+            guard let self else { return }
+            if self.app.isSampling || self.app.isPickingFont { return }
+            self.beginSampling()
+        }
+    }
+
+    /// Freeze-loupe color pick. Gate on Screen Recording before hiding the panel
+    /// so a missing grant doesn't vanish the UI with no explanation.
     private func beginSampling() {
-        guard !app.isSampling else { return }
+        guard !app.isSampling, !colorSampler.isSampling else { return }
+
+        guard CGPreflightScreenCaptureAccess() else {
+            _ = CGRequestScreenCaptureAccess()
+            app.say("Turn on Picker under Screen Recording, then click again", ok: false)
+            if let url = URL(
+                string:
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            {
+                NSWorkspace.shared.open(url)
+            }
+            // Show the panel so the toast is visible when invoked via hotkey.
+            if !panel.isVisible { showPanel() }
+            return
+        }
+
+        let wasVisible = panel.isVisible
+        if wasVisible { hidePanel() }
         app.isSampling = true
+
         Task { @MainActor in
-            let picked = await ColorSampler.sample()
-            app.isSampling = false
-            if let picked {
-                store.add(picked)
-                Haptics.confirm()
+            let outcome = await colorSampler.start(
+                formatProvider: { [weak self] in
+                    self?.settings.colorDisplayFormat ?? .hex
+                },
+                magnificationProvider: { [weak self] in
+                    self?.settings.loupeMagnification ?? PickShortcut.magnificationDefault
+                },
+                onMagnificationChange: { [weak self] value in
+                    self?.settings.loupeMagnification = value
+                }
+            ) { [weak self] picked in
+                guard let self else { return }
+                self.app.isSampling = false
+                if let picked {
+                    self.store.add(picked)
+                    Haptics.confirm()
+                }
+                self.showPanel()
+            }
+
+            if case .needsPermission = outcome {
+                app.isSampling = false
+                if wasVisible { showPanel() }
+                app.say("Turn on Picker under Screen Recording, then click again", ok: false)
+                if let url = URL(
+                    string:
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                ) {
+                    NSWorkspace.shared.open(url)
+                }
             }
         }
     }

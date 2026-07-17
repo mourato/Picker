@@ -10,6 +10,7 @@ import SwiftUI
 struct PanelView: View {
     @ObservedObject var store: ColorStore
     @ObservedObject var fonts: FontStore
+    @ObservedObject var settings: AppSettings
     @ObservedObject var app: AppState
     @ObservedObject var fontLoader: FontLoader
     var onPick: () -> Void
@@ -21,6 +22,7 @@ struct PanelView: View {
     @State private var toast: Toast?
     @State private var toastToken = 0
     @State private var selectedFontID: PickedFont.ID?
+    @State private var showSettings = false
 
     private let width: CGFloat = 320
 
@@ -32,7 +34,10 @@ struct PanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
-            SectionSwitch(pillSection: pillSection, selected: section, onSelect: selectSection)
+            HStack(spacing: Space.sm) {
+                SectionSwitch(pillSection: pillSection, selected: section, onSelect: selectSection)
+                settingsButton
+            }
 
             switch section {
             case .colors: colorsSection
@@ -45,20 +50,47 @@ struct PanelView: View {
         .overlay(alignment: .bottom) { toastView }
         .animation(Motion.settle, value: store.colors.isEmpty)
         .animation(Motion.settle, value: fonts.fonts.isEmpty)
-        .onChange(of: app.fontFeedback) { _, feedback in
+        .onChange(of: app.feedback) { _, feedback in
             guard let feedback else { return }
             if feedback.ok { selectedFontID = nil }
             flash(feedback.text, icon: feedback.ok ? "checkmark" : "exclamationmark.triangle.fill")
         }
         .onAppear { ensureFontsLoaded() }
         .onChange(of: fonts.fonts) { _, _ in ensureFontsLoaded() }
+        .popover(isPresented: $showSettings, arrowEdge: .bottom) {
+            SettingsPopover(settings: settings)
+        }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showSettings.toggle()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Ink.secondary)
+                .frame(width: 30, height: 30)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            Circle().fill(Color.primary.opacity(0.04))
+                .overlay(Circle().stroke(Hairline.soft, lineWidth: 1))
+        )
+        .help("Display format")
+        .accessibilityLabel("Display format settings")
     }
 
     // MARK: Colors section
 
     @ViewBuilder private var colorsSection: some View {
-        HeroCard(picked: store.latest, isSampling: app.isSampling) { copy($0) }
-            .animation(Motion.settle, value: store.latest)
+        HeroCard(
+            picked: store.latest,
+            isSampling: app.isSampling,
+            format: settings.colorDisplayFormat
+        ) { copy($0) }
+        .animation(Motion.settle, value: store.latest)
+        .animation(Motion.settle, value: settings.colorDisplayFormat)
 
         if let latest = store.latest {
             formatsCard(latest)
@@ -68,7 +100,7 @@ struct PanelView: View {
         EyedropperButton(isSampling: app.isSampling, action: onPick)
 
         if !store.colors.isEmpty {
-            SwatchStrip(store: store) { copy($0) }
+            SwatchStrip(store: store, format: settings.colorDisplayFormat) { copy($0) }
                 .transition(.opacity)
         }
     }
@@ -139,12 +171,23 @@ struct PanelView: View {
     // MARK: Formats
 
     private func formatsCard(_ c: PickedColor) -> some View {
-        VStack(spacing: 0) {
-            FormatRow(label: "HEX", value: c.hex) { copy(c.hex) }
+        let preferred = settings.colorDisplayFormat
+        return VStack(spacing: 0) {
+            FormatRow(
+                label: "HEX", value: c.hex, preferred: preferred == .hex
+            ) { copy(c.hex) }
             divider
-            FormatRow(label: "RGB", value: c.rgbString) { copy(c.rgbString) }
+            FormatRow(
+                label: "RGB", value: c.rgbString, preferred: preferred == .rgb
+            ) { copy(c.rgbString) }
             divider
-            FormatRow(label: "HSL", value: c.hslString) { copy(c.hslString) }
+            FormatRow(
+                label: "HSL", value: c.hslString, preferred: preferred == .hsl
+            ) { copy(c.hslString) }
+            divider
+            FormatRow(
+                label: "HSB", value: c.hsbString, preferred: preferred == .hsb
+            ) { copy(c.hsbString) }
         }
         .padding(.vertical, Space.xs)
         .background(
@@ -220,6 +263,7 @@ struct PanelView: View {
 private struct HeroCard: View {
     var picked: PickedColor?
     var isSampling: Bool
+    var format: ColorDisplayFormat
     var onCopy: (String) -> Void
 
     @State private var hovering = false
@@ -242,17 +286,20 @@ private struct HeroCard: View {
         let ink = c.prefersDarkInk ? Color.black : Color.white
         let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
         let showIcon = hovering || justCopied
+        let value = c.string(for: format)
         return Button {
-            copy(c.hex)
+            copy(value)
         } label: {
             ZStack(alignment: .bottomLeading) {
                 shape.fill(c.color)  // pure color, no border or sheen
 
                 HStack(alignment: .center, spacing: 10) {
-                    Text(c.hex)
+                    Text(value)
                         .font(TypeScale.heroHex)
                         .foregroundStyle(ink)
                         .contentTransition(.numericText())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.55)
                     Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(ink.opacity(justCopied ? 1 : 0.85))
@@ -275,8 +322,8 @@ private struct HeroCard: View {
     }
 
     /// Copy, flip the icon to a checkmark, then let it fade back / away shortly after.
-    private func copy(_ hex: String) {
-        onCopy(hex)
+    private func copy(_ string: String) {
+        onCopy(string)
         justCopied = true
         copyToken += 1
         let token = copyToken
@@ -353,6 +400,7 @@ private struct EyedropperButton: View {
 private struct FormatRow: View {
     var label: String
     var value: String
+    var preferred: Bool = false
     var onCopy: () -> Void
 
     @State private var hovering = false
@@ -362,12 +410,17 @@ private struct FormatRow: View {
             HStack(spacing: Space.md) {
                 Text(label)
                     .font(TypeScale.caption)
-                    .foregroundStyle(Ink.tertiary)
+                    .foregroundStyle(preferred ? Ink.primary : Ink.tertiary)
                     .frame(width: 34, alignment: .leading)
                 Text(value)
                     .font(TypeScale.valueStrong)
                     .foregroundStyle(Ink.primary)
                 Spacer(minLength: Space.sm)
+                if preferred {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Ink.tertiary)
+                }
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Ink.tertiary)
@@ -378,7 +431,10 @@ private struct FormatRow: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: Radius.chip - 3, style: .continuous)
-                    .fill(Color.primary.opacity(hovering ? 0.05 : 0))
+                    .fill(
+                        Color.primary.opacity(
+                            hovering ? 0.05 : (preferred ? 0.04 : 0))
+                    )
                     .padding(.horizontal, Space.xs)
             )
         }
@@ -392,6 +448,7 @@ private struct FormatRow: View {
 
 private struct SwatchStrip: View {
     @ObservedObject var store: ColorStore
+    var format: ColorDisplayFormat
     var onCopy: (String) -> Void
 
     @State private var clearHover = false
@@ -416,7 +473,8 @@ private struct SwatchStrip: View {
                     ForEach(store.colors) { c in
                         SwatchChip(
                             color: c,
-                            onCopy: { onCopy(c.hex) },
+                            format: format,
+                            onCopy: { onCopy(c.string(for: format)) },
                             onDelete: { store.remove(c) }
                         )
                         .transition(
@@ -471,6 +529,7 @@ private struct SwatchStrip: View {
 
 private struct SwatchChip: View {
     var color: PickedColor
+    var format: ColorDisplayFormat
     var onCopy: () -> Void
     var onDelete: () -> Void
 
@@ -505,7 +564,7 @@ private struct SwatchChip: View {
         .offset(y: hovering ? -3 : 0)
         .animation(Motion.micro, value: hovering)
         .onHover { hovering = $0 }
-        .help(color.hex)
+        .help(color.string(for: format))
     }
 
     private var deleteButton: some View {
@@ -588,6 +647,168 @@ private final class HorizontalWheelScrollView: NSScrollView {
     }
 }
 
+// MARK: - Settings
+
+private struct SettingsPopover: View {
+    @ObservedObject var settings: AppSettings
+
+    @State private var recordingShortcut = false
+    @State private var keyMonitor: Any?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            formatSection
+            zoomSection
+            shortcutSection
+        }
+        .padding(Space.md)
+        .frame(width: 248)
+        .onDisappear { stopRecording() }
+    }
+
+    private var formatSection: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text("Loupe & hero format")
+                .font(TypeScale.sectionTitle)
+                .foregroundStyle(Ink.tertiary)
+                .tracking(0.6)
+
+            VStack(spacing: Space.xs) {
+                ForEach(ColorDisplayFormat.allCases) { format in
+                    Button {
+                        settings.colorDisplayFormat = format
+                    } label: {
+                        HStack(spacing: Space.sm) {
+                            Image(
+                                systemName: settings.colorDisplayFormat == format
+                                    ? "checkmark.circle.fill" : "circle"
+                            )
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(
+                                settings.colorDisplayFormat == format
+                                    ? Ink.primary : Ink.tertiary)
+                            Text(format.label)
+                                .font(TypeScale.button)
+                                .foregroundStyle(Ink.primary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, Space.sm)
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: Radius.chip - 2, style: .continuous)
+                                .fill(
+                                    Color.primary.opacity(
+                                        settings.colorDisplayFormat == format ? 0.06 : 0))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var zoomSection: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack {
+                Text("Loupe zoom")
+                    .font(TypeScale.sectionTitle)
+                    .foregroundStyle(Ink.tertiary)
+                    .tracking(0.6)
+                Spacer()
+                Text("\(Int(settings.loupeMagnification))×")
+                    .font(TypeScale.valueStrong)
+                    .foregroundStyle(Ink.primary)
+                    .monospacedDigit()
+            }
+
+            Slider(
+                value: Binding(
+                    get: { settings.loupeMagnification },
+                    set: { settings.loupeMagnification = AppSettings.clampMagnification($0) }
+                ),
+                in: PickShortcut.magnificationMin...PickShortcut.magnificationMax,
+                step: PickShortcut.magnificationStep
+            )
+            .controlSize(.small)
+
+            Text("During capture: − decreases, = increases")
+                .font(TypeScale.caption)
+                .foregroundStyle(Ink.faint)
+        }
+    }
+
+    private var shortcutSection: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text("Pick color shortcut")
+                .font(TypeScale.sectionTitle)
+                .foregroundStyle(Ink.tertiary)
+                .tracking(0.6)
+
+            Button {
+                if recordingShortcut {
+                    stopRecording()
+                } else {
+                    startRecording()
+                }
+            } label: {
+                HStack {
+                    Text(recordingShortcut ? "Press keys…" : settings.pickShortcut.displayString)
+                        .font(TypeScale.valueStrong)
+                        .foregroundStyle(recordingShortcut ? Ink.secondary : Ink.primary)
+                    Spacer(minLength: 0)
+                    Image(systemName: recordingShortcut ? "keyboard" : "pencil")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Ink.tertiary)
+                }
+                .padding(.horizontal, Space.sm)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.chip - 2, style: .continuous)
+                        .fill(Color.primary.opacity(recordingShortcut ? 0.08 : 0.04))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Radius.chip - 2, style: .continuous)
+                                .stroke(Hairline.soft, lineWidth: 1)
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Click, then press a key combo with a modifier")
+
+            Text("Click, then press a combo (Esc cancels)")
+                .font(TypeScale.caption)
+                .foregroundStyle(Ink.faint)
+        }
+    }
+
+    private func startRecording() {
+        stopRecording()
+        recordingShortcut = true
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            if event.keyCode == 53 {  // Esc
+                DispatchQueue.main.async { stopRecording() }
+                return nil
+            }
+            if let shortcut = PickShortcut.from(nsEvent: event) {
+                DispatchQueue.main.async {
+                    settings.pickShortcut = shortcut
+                    stopRecording()
+                }
+                return nil
+            }
+            return nil  // swallow while recording
+        }
+    }
+
+    private func stopRecording() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        recordingShortcut = false
+    }
+}
+
 // MARK: - Section switch
 
 private struct SectionSwitch: View {
@@ -595,9 +816,8 @@ private struct SectionSwitch: View {
     let selected: PanelView.Section  // which label is lit (instant)
     var onSelect: (PanelView.Section) -> Void
 
-    // Fixed geometry (panel inner width is a constant 320 − 2·16 = 288). No
-    // GeometryReader — it re-measures during the panel resize and jitters.
-    private let totalW: CGFloat = 288
+    // Fixed geometry: panel inner 288 minus gear (30) minus HStack spacing (8).
+    private let totalW: CGFloat = 250
     private let height: CGFloat = 30
     private let pad: CGFloat = 3
 

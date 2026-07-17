@@ -1,10 +1,34 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
+
+// MARK: - Display format preference
+//
+// Which string the loupe label, hero card, and default copy use. All four formats
+// still appear in the formats card; this only picks the primary one.
+
+enum ColorDisplayFormat: String, CaseIterable, Codable, Identifiable {
+    case hex
+    case rgb
+    case hsl
+    case hsb
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .hex: "HEX"
+        case .rgb: "RGB"
+        case .hsl: "HSL"
+        case .hsb: "HSB"
+        }
+    }
+}
 
 // MARK: - Color value semantics
 //
 // One sampled pixel, reduced to its sRGB truth. We store normalized components
-// (0...1) rather than a hex string so every format — hex, rgb, hsl — derives
+// (0...1) rather than a hex string so every format — hex, rgb, hsl, hsb — derives
 // from the same source and round-trips losslessly.
 
 struct PickedColor: Identifiable, Codable, Equatable, Hashable {
@@ -59,6 +83,25 @@ struct PickedColor: Identifiable, Codable, Equatable, Hashable {
 
     var hslString: String { let v = hsl; return "hsl(\(v.h), \(v.s)%, \(v.l)%)" }
 
+    /// HSB / HSV as CSS `hsb(h, s%, b%)`, from AppKit's device-HSB conversion.
+    var hsb: (h: Int, s: Int, b: Int) {
+        let c = NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+        var h: CGFloat = 0, s: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
+        c.getHue(&h, saturation: &s, brightness: &br, alpha: &a)
+        return (Int((h * 360).rounded()), Int((s * 100).rounded()), Int((br * 100).rounded()))
+    }
+
+    var hsbString: String { let v = hsb; return "hsb(\(v.h), \(v.s)%, \(v.b)%)" }
+
+    func string(for format: ColorDisplayFormat) -> String {
+        switch format {
+        case .hex: hex
+        case .rgb: rgbString
+        case .hsl: hslString
+        case .hsb: hsbString
+        }
+    }
+
     /// Whether black ink reads better than white over this color.
     ///
     /// Uses perceived (gamma-encoded) brightness — the classic YIQ weighting — not
@@ -69,6 +112,227 @@ struct PickedColor: Identifiable, Codable, Equatable, Hashable {
     var prefersDarkInk: Bool {
         let brightness = 0.299 * r + 0.587 * g + 0.114 * b
         return brightness >= 0.5
+    }
+}
+
+// MARK: - Keyboard shortcut
+//
+// Carbon keyCode + modifiers for the global pick hotkey. Display uses the usual
+// macOS glyphs (⌃⌥⇧⌘). Default is Control+Option+C.
+
+struct PickShortcut: Equatable {
+    var keyCode: UInt32
+    /// Carbon modifier flags (`controlKey`, `optionKey`, `shiftKey`, `cmdKey`).
+    var carbonModifiers: UInt32
+
+    /// Default: ⌃⌥C
+    static let `default` = PickShortcut(
+        keyCode: 8,  // kVK_ANSI_C
+        carbonModifiers: UInt32(controlKey | optionKey))
+
+    static let magnificationMin: Double = 4
+    static let magnificationMax: Double = 32
+    static let magnificationStep: Double = 2
+    static let magnificationDefault: Double = 12
+
+    var displayString: String {
+        var parts: [String] = []
+        if carbonModifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
+        if carbonModifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
+        if carbonModifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
+        if carbonModifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
+        parts.append(Self.keyName(for: keyCode))
+        return parts.joined()
+    }
+
+    /// True when the combo has at least one modifier (bare keys are rejected).
+    var isValid: Bool {
+        carbonModifiers
+            & UInt32(controlKey | optionKey | shiftKey | cmdKey) != 0
+    }
+
+    static func from(nsEvent event: NSEvent) -> PickShortcut? {
+        var mods: UInt32 = 0
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.control) { mods |= UInt32(controlKey) }
+        if flags.contains(.option) { mods |= UInt32(optionKey) }
+        if flags.contains(.shift) { mods |= UInt32(shiftKey) }
+        if flags.contains(.command) { mods |= UInt32(cmdKey) }
+        let shortcut = PickShortcut(keyCode: UInt32(event.keyCode), carbonModifiers: mods)
+        guard shortcut.isValid else { return nil }
+        // Reject pure modifier presses.
+        let code = Int(event.keyCode)
+        let modifierKeys: Set<Int> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+        if modifierKeys.contains(code) { return nil }
+        return shortcut
+    }
+
+    private static func keyName(for keyCode: UInt32) -> String {
+        switch Int(keyCode) {
+        case 0: return "A"
+        case 1: return "S"
+        case 2: return "D"
+        case 3: return "F"
+        case 4: return "H"
+        case 5: return "G"
+        case 6: return "Z"
+        case 7: return "X"
+        case 8: return "C"
+        case 9: return "V"
+        case 11: return "B"
+        case 12: return "Q"
+        case 13: return "W"
+        case 14: return "E"
+        case 15: return "R"
+        case 16: return "Y"
+        case 17: return "T"
+        case 18: return "1"
+        case 19: return "2"
+        case 20: return "3"
+        case 21: return "4"
+        case 22: return "6"
+        case 23: return "5"
+        case 24: return "="
+        case 25: return "9"
+        case 26: return "7"
+        case 27: return "-"
+        case 28: return "8"
+        case 29: return "0"
+        case 30: return "]"
+        case 31: return "O"
+        case 32: return "U"
+        case 33: return "["
+        case 34: return "I"
+        case 35: return "P"
+        case 36: return "↩"
+        case 37: return "L"
+        case 38: return "J"
+        case 39: return "'"
+        case 40: return "K"
+        case 41: return ";"
+        case 42: return "\\"
+        case 43: return ","
+        case 44: return "/"
+        case 45: return "N"
+        case 46: return "M"
+        case 47: return "."
+        case 48: return "⇥"
+        case 49: return "Space"
+        case 50: return "`"
+        case 51: return "⌫"
+        case 53: return "Esc"
+        case 96: return "F5"
+        case 97: return "F6"
+        case 98: return "F7"
+        case 99: return "F3"
+        case 100: return "F8"
+        case 101: return "F9"
+        case 103: return "F11"
+        case 105: return "F13"
+        case 107: return "F14"
+        case 109: return "F10"
+        case 111: return "F12"
+        case 113: return "F15"
+        case 114: return "Help"
+        case 115: return "↖"
+        case 116: return "⇞"
+        case 117: return "⌦"
+        case 118: return "F4"
+        case 119: return "↘"
+        case 120: return "F2"
+        case 121: return "⇟"
+        case 122: return "F1"
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        default: return "Key\(keyCode)"
+        }
+    }
+}
+
+// MARK: - App settings
+//
+// Lightweight preferences. Mutated on the main actor; persists to UserDefaults
+// unless `--demo` turns persistence off.
+
+@MainActor
+final class AppSettings: ObservableObject {
+    @Published var colorDisplayFormat: ColorDisplayFormat {
+        didSet { persist() }
+    }
+
+    @Published var loupeMagnification: Double {
+        didSet {
+            let clamped = Self.clampMagnification(loupeMagnification)
+            if clamped != loupeMagnification {
+                loupeMagnification = clamped
+                return
+            }
+            persist()
+        }
+    }
+
+    @Published var pickShortcut: PickShortcut {
+        didSet { persist() }
+    }
+
+    /// Fired after any persisted mutation so the host can re-register the hotkey.
+    var onChange: (() -> Void)?
+
+    /// When false, changes stay in memory only — used by `--demo`.
+    var persistenceEnabled = true
+
+    private let formatKey = "picker.colorDisplayFormat.v1"
+    private let magnificationKey = "picker.loupeMagnification.v1"
+    private let shortcutKeyCodeKey = "picker.pickShortcut.keyCode.v1"
+    private let shortcutModifiersKey = "picker.pickShortcut.modifiers.v1"
+
+    init() {
+        if let raw = UserDefaults.standard.string(forKey: formatKey),
+            let format = ColorDisplayFormat(rawValue: raw)
+        {
+            colorDisplayFormat = format
+        } else {
+            colorDisplayFormat = .hex
+        }
+
+        let storedMag = UserDefaults.standard.object(forKey: magnificationKey) as? Double
+        loupeMagnification = Self.clampMagnification(
+            storedMag ?? PickShortcut.magnificationDefault)
+
+        if UserDefaults.standard.object(forKey: shortcutKeyCodeKey) != nil {
+            let code = UInt32(UserDefaults.standard.integer(forKey: shortcutKeyCodeKey))
+            let mods = UInt32(UserDefaults.standard.integer(forKey: shortcutModifiersKey))
+            let shortcut = PickShortcut(keyCode: code, carbonModifiers: mods)
+            pickShortcut = shortcut.isValid ? shortcut : .default
+        } else {
+            pickShortcut = .default
+        }
+    }
+
+    func nudgeMagnification(_ delta: Double) {
+        loupeMagnification = Self.clampMagnification(loupeMagnification + delta)
+    }
+
+    static func clampMagnification(_ value: Double) -> Double {
+        let stepped =
+            (value / PickShortcut.magnificationStep).rounded()
+            * PickShortcut.magnificationStep
+        return min(
+            PickShortcut.magnificationMax,
+            max(PickShortcut.magnificationMin, stepped))
+    }
+
+    private func persist() {
+        if persistenceEnabled {
+            UserDefaults.standard.set(colorDisplayFormat.rawValue, forKey: formatKey)
+            UserDefaults.standard.set(loupeMagnification, forKey: magnificationKey)
+            UserDefaults.standard.set(Int(pickShortcut.keyCode), forKey: shortcutKeyCodeKey)
+            UserDefaults.standard.set(
+                Int(pickShortcut.carbonModifiers), forKey: shortcutModifiersKey)
+        }
+        onChange?()
     }
 }
 

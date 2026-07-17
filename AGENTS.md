@@ -2,7 +2,7 @@
 
 ## Identity
 
-Picker is a native macOS menu-bar **color and font** picker: magnified-pixel sampling (HEX / RGB / HSL), Grab Font via Accessibility, Liquid Glass panel, and saved palette/font lists. Zero third-party dependencies; SwiftUI + AppKit; single Swift package.
+Picker is a native macOS menu-bar **color and font** picker: freeze-loupe pixel sampling (HEX / RGB / HSL / HSB), Grab Font via Accessibility, Liquid Glass panel, and saved palette/font lists. Zero third-party dependencies; SwiftUI + AppKit; single Swift package.
 
 ## Core Values & Precedence
 
@@ -27,13 +27,15 @@ Do **not** use plain `swift build` for day-to-day verification. The Info.plist (
 
 ## Hard Requirements
 
-- macOS 26+ (Liquid Glass / `glassEffect`, `NSColorSampler`). No older-OS fallback.
+- macOS 26+ (Liquid Glass / `glassEffect`, ScreenCaptureKit freeze loupe). No older-OS fallback.
+- Pick a Color needs Screen Recording permission (tied to code-signing identity).
 - Grab Font needs Accessibility permission (tied to code-signing identity).
 - Chrome/Chromium font grab also needs Automation + “Allow JavaScript from Apple Events”.
 
 ## Deliberate Design (do not “fix” on sight)
 
-- Non-activating `NSPanel` + `NSStatusItem`, **not** `MenuBarExtra` — panel must stay open during sampling.
+- Non-activating `NSPanel` + `NSStatusItem`, **not** `MenuBarExtra` — panel must not steal focus while sampling.
+- Freeze loupe replaces `NSColorSampler` so the label can follow the preferred display format.
 - Ink contrast uses **YIQ** perceived brightness, not WCAG relative luminance alone.
 - Vertical mouse wheel scrolls the palette strip horizontally (`WheelHScroll`).
 
@@ -44,6 +46,7 @@ Do **not** use plain `swift build` for day-to-day verification. The Info.plist (
 - There is no automated test target yet — verify by build + manual menu-bar checks.
 - When UI/logic/assets become unused, remove them in the same change with search evidence.
 - Model identifiers belong only in global agent configuration; do not put them in this repo’s skills or docs.
+- Global pick shortcut default is **⌃⌥C** (`GlobalHotKey` / Carbon); loupe zoom is `AppSettings.loupeMagnification` (4…32, −/= during capture).
 
 ## SwiftUI Preview Policy
 

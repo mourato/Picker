@@ -48,6 +48,8 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
     <string>NSApplication</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Picker reads the font of text you click on in Chromium browsers (whose accessibility doesn't expose font names) by asking the browser for the page's computed style.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Picker freezes your displays so the color loupe can sample any pixel and show HEX, RGB, HSL, or HSB while you pick.</string>
 </dict>
 </plist>
 PLIST
