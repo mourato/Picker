@@ -18,7 +18,7 @@ The catalog is organized by responsibility so agents trigger the narrowest usefu
 | `debugging-diagnostics` | `.agents/skills/debugging-diagnostics/` | Crashes, AX/Chrome failures, FontLoader network, event-tap issues |
 | `testing-xctest` | `.agents/skills/testing-xctest/` | Adding XCTest coverage for color math, stores, FontLoader routing |
 | `localization` | `.agents/skills/localization/` | User-facing strings, tooltips, accessible copy |
-| `documentation` | `.agents/skills/documentation/` | README, CLAUDE.md, AGENTS.md, MARK comments in sources |
+| `documentation` | `.agents/skills/documentation/` | README, AGENTS.md (CLAUDE.md symlink), MARK comments in sources |
 | `global:improve` | `~/.codex/skills/improve/` | Read-only audits and self-contained implementation plans |
 | `global:thermo-nuclear-code-quality-review` | `~/.codex/skills/thermo-nuclear-code-quality-review/` | Strict reviews; load `.agents/review-profiles/thermo-picker.md` |
 

@@ -37,7 +37,7 @@ A sliding pill switches between the two; nothing else moves.
 
 ## Features
 
-- **Magnified-pixel sampling** — a freeze loupe captures every display, then magnifies the frozen bitmap pixel-by-pixel so you grab the exact one every time. Requires **Screen Recording** permission (macOS prompts on first use). Adjust zoom in settings or with **−** / **=** while picking.
+- **Magnified-pixel sampling** — a freeze loupe captures every display, then magnifies the frozen bitmap pixel-by-pixel so you grab the exact one every time. Requires **Screen Recording** permission (macOS prompts on first use). Adjust zoom with **−** / **=**, loupe size with **⌘−** / **⌘=**; from **8×** a pixel grid appears inside the loupe.
 - **Global pick shortcut** — default **⌃⌥C**; change it under the gear. Works even when another app is focused.
 - **Grab any font, anywhere** — a click-through overlay reads the text *under* your cursor through the accessibility tree, so it works on web pages (Safari/WebKit **and Chrome/Chromium**), native apps, and even items in an already-open dropdown — highlighting the actual text run, never a surrounding box. Chromium hides the font family from accessibility, so for those browsers Picker reads it straight from the page's computed style — and the hover label resolves instantly.
 - **Liquid Glass** — a real macOS 26 glass panel, not a mockup.
