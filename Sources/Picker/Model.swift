@@ -2,10 +2,10 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-// MARK: - Display format preference
+// MARK: - Color format preference
 //
-// Which string the loupe label, hero card, and default copy use. All four formats
-// still appear in the formats card; this only picks the primary one.
+// Shared enum for loupe/hero display and clipboard-on-pick. All four formats
+// still appear in the formats card; these prefs only pick the primary ones.
 
 enum ColorDisplayFormat: String, CaseIterable, Codable, Identifiable {
     case hex
@@ -284,7 +284,13 @@ struct PickShortcut: Equatable {
 
 @MainActor
 final class AppSettings: ObservableObject {
+    /// Loupe label, hero card, and preferred highlight in the formats card.
     @Published var colorDisplayFormat: ColorDisplayFormat {
+        didSet { persist() }
+    }
+
+    /// String written to the clipboard when a loupe pick commits.
+    @Published var clipboardFormat: ColorDisplayFormat {
         didSet { persist() }
     }
 
@@ -330,6 +336,7 @@ final class AppSettings: ObservableObject {
     var persistenceEnabled = true
 
     private let formatKey = "picker.colorDisplayFormat.v1"
+    private let clipboardFormatKey = "picker.clipboardFormat.v1"
     private let magnificationKey = "picker.loupeMagnification.v1"
     private let loupeRadiusKey = "picker.loupeRadius.v1"
     private let freezeScopeKey = "picker.freezeScope.v1"
@@ -344,6 +351,14 @@ final class AppSettings: ObservableObject {
             colorDisplayFormat = format
         } else {
             colorDisplayFormat = .hex
+        }
+
+        if let raw = UserDefaults.standard.string(forKey: clipboardFormatKey),
+            let format = ColorDisplayFormat(rawValue: raw)
+        {
+            clipboardFormat = format
+        } else {
+            clipboardFormat = .hex
         }
 
         let storedMag = UserDefaults.standard.object(forKey: magnificationKey) as? Double
@@ -405,6 +420,7 @@ final class AppSettings: ObservableObject {
     private func persist() {
         if persistenceEnabled {
             UserDefaults.standard.set(colorDisplayFormat.rawValue, forKey: formatKey)
+            UserDefaults.standard.set(clipboardFormat.rawValue, forKey: clipboardFormatKey)
             UserDefaults.standard.set(loupeMagnification, forKey: magnificationKey)
             UserDefaults.standard.set(loupeRadius, forKey: loupeRadiusKey)
             UserDefaults.standard.set(freezeScope.rawValue, forKey: freezeScopeKey)

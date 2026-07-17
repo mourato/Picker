@@ -32,7 +32,9 @@ final class ColorSampler {
     private var onMagnificationChange: ((Double) -> Void)?
     private var onRadiusChange: ((Double) -> Void)?
     private var onPresented: (() -> Void)?
-    private var onWillDismiss: (() -> Void)?
+    /// Called just before the overlay is removed, with the pick result (`nil` = cancel).
+    /// Hosts that want to reopen the panel under the loupe (cancel path) should do it here.
+    private var onWillDismiss: ((PickedColor?) -> Void)?
     private var currentColor: PickedColor?
     private var magnification: Double = PickShortcut.magnificationDefault
     private var loupeRadius: Double = PickShortcut.loupeRadiusDefault
@@ -53,8 +55,10 @@ final class ColorSampler {
     ///
     /// - Parameters:
     ///   - onPresented: Called once the overlay is on screen (hide the panel here).
-    ///   - onWillDismiss: Called just before the overlay is removed (reveal the panel
-    ///     under it first to avoid a desktop flash).
+    ///   - onWillDismiss: Called just before the overlay is removed, with the pick
+    ///     result. Reveal the panel here on cancel (when it was open) so tearing
+    ///     down the loupe does not flash the live desktop; leave it closed on a
+    ///     successful pick.
     func start(
         freezeScope: FreezeScope,
         formatProvider: @escaping () -> ColorDisplayFormat,
@@ -64,7 +68,7 @@ final class ColorSampler {
         onMagnificationChange: @escaping (Double) -> Void,
         onRadiusChange: @escaping (Double) -> Void,
         onPresented: @escaping () -> Void,
-        onWillDismiss: @escaping () -> Void,
+        onWillDismiss: @escaping (PickedColor?) -> Void,
         onResult: @escaping (PickedColor?) -> Void
     ) async -> Start {
         guard ensureScreenAccess() else { return .needsPermission }
@@ -253,9 +257,9 @@ final class ColorSampler {
     }
 
     private func finish(_ color: PickedColor?) {
-        // Reveal the panel under the loupe first so tearing down the overlay does
-        // not flash the live desktop.
-        onWillDismiss?()
+        // Let the host reopen the panel under the loupe (typically on cancel) before
+        // the overlay goes away — otherwise the live desktop flashes through.
+        onWillDismiss?(color)
 
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)

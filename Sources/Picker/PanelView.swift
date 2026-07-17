@@ -657,7 +657,14 @@ private struct SettingsPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
-            formatSection
+            formatPicker(
+                title: "Loupe & hero",
+                caption: "Label on the loupe and hero card",
+                selection: $settings.colorDisplayFormat)
+            formatPicker(
+                title: "Clipboard on pick",
+                caption: "Copied when you confirm a color",
+                selection: $settings.clipboardFormat)
             zoomSection
             freezeScopeSection
             shortcutSection
@@ -667,26 +674,34 @@ private struct SettingsPopover: View {
         .onDisappear { stopRecording() }
     }
 
-    private var formatSection: some View {
+    private func formatPicker(
+        title: String,
+        caption: String,
+        selection: Binding<ColorDisplayFormat>
+    ) -> some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            Text("Loupe & hero format")
+            Text(title)
                 .font(TypeScale.sectionTitle)
                 .foregroundStyle(Ink.tertiary)
                 .tracking(0.6)
 
+            Text(caption)
+                .font(TypeScale.caption)
+                .foregroundStyle(Ink.faint)
+
             VStack(spacing: Space.xs) {
                 ForEach(ColorDisplayFormat.allCases) { format in
                     Button {
-                        settings.colorDisplayFormat = format
+                        selection.wrappedValue = format
                     } label: {
                         HStack(spacing: Space.sm) {
                             Image(
-                                systemName: settings.colorDisplayFormat == format
+                                systemName: selection.wrappedValue == format
                                     ? "checkmark.circle.fill" : "circle"
                             )
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(
-                                settings.colorDisplayFormat == format
+                                selection.wrappedValue == format
                                     ? Ink.primary : Ink.tertiary)
                             Text(format.label)
                                 .font(TypeScale.button)
@@ -700,7 +715,7 @@ private struct SettingsPopover: View {
                             RoundedRectangle(cornerRadius: Radius.chip - 2, style: .continuous)
                                 .fill(
                                     Color.primary.opacity(
-                                        settings.colorDisplayFormat == format ? 0.06 : 0))
+                                        selection.wrappedValue == format ? 0.06 : 0))
                         )
                     }
                     .buttonStyle(.plain)

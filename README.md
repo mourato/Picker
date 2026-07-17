@@ -30,7 +30,7 @@ Grab any pixel on screen as HEX / RGB / HSL / HSB — or click any text in any a
 
 Picker lives in your menu bar. Click it and you get two tools behind one glass panel:
 
-- **Colors** — hit **Pick a Color** (or press **⌃⌥C**) and the displays freeze under a magnified loupe. Line up the exact pixel anywhere on screen and click; the color drops in as HEX / RGB / HSL / HSB (pick your preferred format in settings), ready to copy and saved to your palette.
+- **Colors** — hit **Pick a Color** (or press **⌃⌥C**) and the displays freeze under a magnified loupe. Line up the exact pixel anywhere on screen and click; the color is saved to your palette and copied to the clipboard. Loupe/hero format and clipboard format are chosen separately in settings (HEX / RGB / HSL / HSB). The panel stays closed after a successful pick.
 - **Fonts** — hit **Grab Font** and your cursor becomes a text picker. Hover any text in **Safari or Chrome** (and other Chromium browsers), another app, or a dropdown — a crosshair highlights the exact run and reads its family and size — then click to keep it. The card shows a live specimen **in the font's real typeface** (downloading it if you don't already have it), and **Find** takes you to the font's source. A saved-fonts strip lets you flip between everything you've grabbed.
 
 A sliding pill switches between the two; nothing else moves.
@@ -41,7 +41,7 @@ A sliding pill switches between the two; nothing else moves.
 - **Global pick shortcut** — default **⌃⌥C**; change it under the gear. Works even when another app is focused.
 - **Grab any font, anywhere** — a click-through overlay reads the text *under* your cursor through the accessibility tree, so it works on web pages (Safari/WebKit **and Chrome/Chromium**), native apps, and even items in an already-open dropdown — highlighting the actual text run, never a surrounding box. Chromium hides the font family from accessibility, so for those browsers Picker reads it straight from the page's computed style — and the hover label resolves instantly.
 - **Liquid Glass** — a real macOS 26 glass panel, not a mockup.
-- **HEX · RGB · HSL · HSB** — every color format at once; choose which one the loupe and hero show via the gear; click a value to copy it and the icon flips to a checkmark.
+- **HEX · RGB · HSL · HSB** — every color format at once; pick loupe/hero and clipboard-on-pick formats independently via the gear; click a value to copy it and the icon flips to a checkmark.
 - **Real-typeface specimen** — every grabbed font renders in its *actual* face. If you don't have it installed, Picker fetches and registers it on the fly from the open-font catalog (Google Fonts, then Fontsource), so the preview is the real thing — even for variable fonts that hide behind an odd internal name. Faces you can't legally download fall back to a system preview.
 - **Find any font** — the **Find** link deep-links to a font's Google Fonts page when it's free, and otherwise opens a web search for the family name in Safari — so it locates commercial, foundry, and self-hosted fonts too, not just Google's catalog.
 - **Saved palette & font list** — running strips of everything you've grabbed. Click to copy, hover to delete, scroll the row with your mouse wheel.
@@ -86,7 +86,7 @@ Picker is a compact SwiftUI + AppKit app with no third-party code:
 - **Chromium support** — Chromium's accessibility hit test is unreliable (it returns a giant scroll container, not the run) and never reports the font family, so for Chromium browsers Picker finds the text run by **geometry** — the deepest `AXStaticText` whose frame contains the pointer, searched from the app root — and reads the actual family/size/weight from the page's `getComputedStyle` via an in-process `NSAppleScript` "execute javascript" call (~10ms, warmed at launch so the hover label is instant). It also wakes Chromium's lazily-built AX tree when the picker starts.
 - **Real faces & Find** — when a grabbed font isn't installed, `FontLoader` pulls it from the Google Fonts **css2** catalog (or Fontsource on jsDelivr) and registers it with `CTFontManagerRegisterFontsForURL`, which loads TTF/WOFF/WOFF2 by content. Variable fonts that register under a named-instance family are remapped via the font's own descriptor so the specimen still renders. **Find** deep-links Google-hosted fonts and web-searches everything else.
 - **Contrast** — ink chosen by YIQ perceived brightness (`0.299·R + 0.587·G + 0.114·B`), which keeps white text on saturated and dark colors.
-- **Persistence** — the palette, font list, display format, loupe zoom, and pick shortcut are stored in `UserDefaults`.
+- **Persistence** — the palette, font list, loupe/hero format, clipboard-on-pick format, loupe zoom, and pick shortcut are stored in `UserDefaults`.
 
 ```
 Sources/Picker/

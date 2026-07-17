@@ -345,6 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Capture while the panel can stay up (excluded from the freeze), then
         // present the overlay and only then tuck the panel away — no desktop flash.
+        let wasVisible = panel.isVisible
         app.isSampling = true
 
         Task { @MainActor in
@@ -371,7 +372,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onPresented: { [weak self] in
                     self?.hidePanel(animated: false)
                 },
-                onWillDismiss: { [weak self] in
+                onWillDismiss: { [weak self] picked in
+                    // Successful pick leaves the panel closed. Cancel restores it
+                    // under the loupe when it was open, so the desktop does not flash.
+                    guard picked == nil, wasVisible else { return }
                     self?.showPanel(animated: false)
                 }
             ) { [weak self] picked in
@@ -379,9 +383,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.app.isSampling = false
                 if let picked {
                     self.store.add(picked)
+                    Clipboard.copy(picked.string(for: self.settings.clipboardFormat))
                     Haptics.confirm()
                 }
-                // Panel already revealed under the loupe in onWillDismiss.
             }
 
             if case .needsPermission = outcome {
