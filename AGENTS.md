@@ -85,7 +85,8 @@ Code is formatted with Apple's `swift-format` (bundled with the toolchain) again
 
 ## Skills
 
-Use [`.agents/SKILLS_INDEX.md`](.agents/SKILLS_INDEX.md) as the local taxonomy and routing registry.
+Choose the narrowest relevant skill from its description. Keep routing policy
+in this file and domain-specific guidance in the owning skill.
 
 Global skills use the `global:<name>` form and must not be copied into `.agents/skills/`:
 

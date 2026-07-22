@@ -51,5 +51,5 @@ Do **not** treat plain `swift build` as sufficient acceptance — Info.plist and
 
 ## Related
 
-- Domain behavior → narrowest skill in `.agents/SKILLS_INDEX.md`
+- Domain behavior → narrowest skill in `.agents/skills/` (use `project-standards` when routing or policy is unclear)
 - Strict review → `global:thermo-nuclear-code-quality-review` + `.agents/review-profiles/thermo-picker.md`

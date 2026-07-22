@@ -12,7 +12,6 @@ Use when updating project docs, agent guidance, or in-source section markers.
 - **README.md** — product pitch, requirements, build/run, feature overview for humans.
 - **AGENTS.md** — canonical agent guide (identity, commands, deliberate design, loupe/fonts, skills routing). Edit this file only.
 - **CLAUDE.md** — symlink to `AGENTS.md` for Claude Code / tools that expect that filename. Do not edit separately.
-- **`.agents/SKILLS_INDEX.md`** — skill catalog and routing table.
 - Source `// MARK:` — navigate large files (`PanelView`, `FontPicker`, `App`).
 
 ## Rules
@@ -31,5 +30,5 @@ Use when updating project docs, agent guidance, or in-source section markers.
 
 ## Related
 
-- Standards / routing → `AGENTS.md` + `SKILLS_INDEX.md`
+- Standards / routing → `AGENTS.md` + `project-standards` + the owning skill
 - Delivery commands → `delivery-workflow`
