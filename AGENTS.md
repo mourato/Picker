@@ -113,13 +113,19 @@ Load the project-only profile [`.agents/review-profiles/thermo-picker.md`](.agen
 
 Primary local skills:
 
-- `delivery-workflow`
-- `macos-app-engineering`
-- `menubar`
-- `accessibility-audit`
-- `apple-design`
-- `swift-conventions`
-- `code-quality`
+- `global:delivery-workflow`
+- `global:macos-app-engineering`
+- `global:menubar`
+- `global:accessibility-audit`
+- `global:apple-design`
+- `global:swift-conventions`
+- `global:code-quality`
+- `data-persistence`
+- `debugging-diagnostics`
+- `documentation`
+- `localization`
+- `swift-concurrency-expert`
+- `testing-xctest`
 
 ## Compatibility
 

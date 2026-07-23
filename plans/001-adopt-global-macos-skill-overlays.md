@@ -51,11 +51,13 @@ contracts local.
 - `.agents/overlays/` with seven Picker overlays
 - deletion of the seven duplicate local skill directories
 - `plans/README.md` and this plan
+- `.agents/review-profiles/thermo-picker.md` routing from deleted local skill
+  paths to the corresponding global skills and Picker overlays
 
 **Out of scope**
 
 - `Sources/**`, `Package.swift`, `build.sh`, assets, signing, permissions,
-  `CLAUDE.md`, review profiles, and product behavior
+  `CLAUDE.md`, and product behavior
 - `data-persistence`, `debugging-diagnostics`, `documentation`,
   `localization`, `swift-concurrency-expert`, `swift-conventions` beyond the
   migrated duplicate, and any future test-target work
@@ -92,8 +94,9 @@ are discoverable; no same-name local replacement is loaded.
 
 Create seven companion files under `.agents/overlays/`. Extend the existing
 Skills section in `AGENTS.md` with the seven global-skill-to-overlay mappings.
-Keep the existing `global:improve`, global review, and project-only review
-profile routing unchanged.
+Route the project-only review profile from deleted local skill paths to the
+global skills and corresponding Picker overlays. Keep the existing
+`global:improve` and global review routing intact.
 
 **Verify**: `rg -n "global:|project-overlay|\.agents/overlays|Liquid Glass|YIQ|AX|Screen Recording" AGENTS.md .agents/overlays` → routing and Picker invariants are visible.
 
@@ -144,6 +147,8 @@ in use. Never delete `main`, `upstream`, or an unmerged branch.
 
 - Seven overlays exist and declare `extends` for the seven global skills.
 - No duplicate local global-skill directory remains.
+- The project-only review profile references global skills and Picker overlays,
+  with no deleted local skill paths.
 - `git diff --check` passes.
 - `swift format lint ... Sources` passes.
 - `./build.sh debug` passes and preserves the existing app bundle/signing path.

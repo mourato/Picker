@@ -7,12 +7,10 @@ precedence: project
 
 # Picker macOS engineering overlay
 
-- Target macOS 26+ with real Liquid Glass and no older-OS fallback.
-- Keep one explicit owner for the `NSStatusItem` and the non-activating,
-  borderless `NSPanel`; use this pair rather than `MenuBarExtra` so sampling
-  does not steal focus.
-- Pick a Color uses Screen Recording permission and freeze-loupe sampling;
-  Grab Font uses a click-through AX-invisible overlay and Accessibility (plus
-  Chrome Automation) permission.
-- Keep SwiftUI/AppKit bridges thin and preserve the existing `--demo` path,
-  which uses in-memory data and does not write real stores.
+- Picker targets macOS 26+ with real Liquid Glass and no older-OS fallback.
+- Its single status-item owner pairs an `NSStatusItem` with a non-activating,
+  borderless `NSPanel`, not `MenuBarExtra`, so sampling preserves source focus.
+- Pick a Color uses Screen Recording and freeze-loupe sampling; Grab Font uses
+  a click-through AX-invisible overlay with Accessibility and Chrome Automation
+  permissions.
+- The `--demo` path uses in-memory data and does not write real stores.

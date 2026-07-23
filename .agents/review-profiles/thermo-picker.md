@@ -6,7 +6,7 @@ It contains no generic review checklist and no model configuration.
 ## Project invariants
 
 - Preserve exact sampling, focus-preserving panel behavior, and safe persistence before convenience.
-- Treat `NSStatusItem` ownership, left-click / right-click semantics, non-activating `NSPanel` (not `MenuBarExtra`), and sampling/font-pick overlays as product-critical. Load `.agents/skills/menubar/SKILL.md` when a diff touches those paths.
+- Treat `NSStatusItem` ownership, left-click / right-click semantics, non-activating `NSPanel` (not `MenuBarExtra`), and sampling/font-pick overlays as product-critical. Load `global:menubar` and then `.agents/overlays/menubar.md` when a diff touches those paths.
 - Do not replace YIQ ink contrast with WCAG luminance alone without an explicit product decision.
 - Keep `--demo` from writing real UserDefaults stores (`persistenceEnabled = false`).
 - Prefer `./build.sh` over plain `swift build` for acceptance; Info.plist + codesign matter for glass and the loupe.
@@ -16,4 +16,4 @@ It contains no generic review checklist and no model configuration.
 
 ## Routing boundary
 
-Use `.agents/skills/delivery-workflow/SKILL.md` for commands, validation depth, and Git evidence. Use the narrowest domain skill for technical behavior. This profile only adds Picker-specific acceptance criteria to the global thermo review.
+Use `global:delivery-workflow` and then `.agents/overlays/delivery-workflow.md` for commands, validation depth, and Git evidence. Use the narrowest global domain skill with its corresponding Picker overlay for technical behavior. This profile only adds Picker-specific acceptance criteria to the global thermo review.
