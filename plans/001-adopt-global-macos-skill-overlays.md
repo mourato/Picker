@@ -8,6 +8,7 @@
 
 ## Status
 
+- **Status**: DONE — merged to `main` as `3c957fb` via PR #1 in `mourato/Picker`.
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
