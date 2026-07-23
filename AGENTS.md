@@ -93,19 +93,39 @@ Global skills use the `global:<name>` form and must not be copied into `.agents/
 - `global:improve` — read-only audits and implementation plans
 - `global:thermo-nuclear-code-quality-review` — strict reviews
 
+When one of these global skills is active, load its optional Picker companion
+overlay from `.agents/overlays/<skill-name>.md` after the global skill. The
+overlay uses `kind: project-overlay`, preserves global safety and integrity
+rules, and supplies Picker-specific paths, commands, platform facts, and
+invariants:
+
+- `global:accessibility-audit` → `.agents/overlays/accessibility-audit.md`
+- `global:apple-design` → `.agents/overlays/apple-design.md`
+- `global:code-quality` → `.agents/overlays/code-quality.md`
+- `global:delivery-workflow` → `.agents/overlays/delivery-workflow.md`
+- `global:macos-app-engineering` → `.agents/overlays/macos-app-engineering.md`
+- `global:menubar` → `.agents/overlays/menubar.md`
+- `global:swift-conventions` → `.agents/overlays/swift-conventions.md`
+
 Load the project-only profile [`.agents/review-profiles/thermo-picker.md`](.agents/review-profiles/thermo-picker.md) with the global thermo review.
 
 `delivery-workflow` owns validation commands, risk lanes, and Git evidence. Domain skills own Picker technical invariants.
 
 Primary local skills:
 
-- `delivery-workflow`
-- `macos-app-engineering`
-- `menubar`
-- `accessibility-audit`
-- `apple-design`
-- `swift-conventions`
-- `code-quality`
+- `global:delivery-workflow`
+- `global:macos-app-engineering`
+- `global:menubar`
+- `global:accessibility-audit`
+- `global:apple-design`
+- `global:swift-conventions`
+- `global:code-quality`
+- `data-persistence`
+- `debugging-diagnostics`
+- `documentation`
+- `localization`
+- `swift-concurrency-expert`
+- `testing-xctest`
 
 ## Compatibility
 
