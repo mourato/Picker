@@ -16,4 +16,25 @@ It contains no generic review checklist and no model configuration.
 
 ## Routing boundary
 
-Use `global:delivery-workflow` and then `.agents/overlays/delivery-workflow.md` for commands, validation depth, and Git evidence. Use the narrowest global domain skill with its corresponding Picker overlay for technical behavior. This profile only adds Picker-specific acceptance criteria to the global thermo review.
+Use the narrowest relevant skill for each change. For every migrated global
+skill, load the global skill first and then its Picker overlay:
+
+- `global:accessibility-audit` → `.agents/overlays/accessibility-audit.md`
+- `global:apple-design` → `.agents/overlays/apple-design.md`
+- `global:code-quality` → `.agents/overlays/code-quality.md`
+- `global:delivery-workflow` → `.agents/overlays/delivery-workflow.md`
+- `global:macos-app-engineering` → `.agents/overlays/macos-app-engineering.md`
+- `global:menubar` → `.agents/overlays/menubar.md`
+- `global:swift-conventions` → `.agents/overlays/swift-conventions.md`
+
+Retain and route the project-only specialists when their ownership is
+relevant: `data-persistence` → `.agents/skills/data-persistence/SKILL.md`,
+`debugging-diagnostics` → `.agents/skills/debugging-diagnostics/SKILL.md`,
+`documentation` → `.agents/skills/documentation/SKILL.md`,
+`localization` → `.agents/skills/localization/SKILL.md`,
+`swift-concurrency-expert` →
+`.agents/skills/swift-concurrency-expert/SKILL.md`, and `testing-xctest` →
+`.agents/skills/testing-xctest/SKILL.md`.
+
+This profile only adds Picker-specific acceptance criteria to the global thermo
+review.
