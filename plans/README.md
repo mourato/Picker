@@ -7,7 +7,7 @@ keep product source out of guidance-only plans.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
-| 001 | Adopt global macOS skills with a Picker project overlay | P1 | M | global plan 004 merged | TODO |
+| 001 | Adopt global macOS skills with a Picker project overlay | P1 | M | global plan 004 merged | DONE |
 
 ## Scope policy
 
